@@ -4,9 +4,9 @@ use serde_json::Value;
 #[derive(Debug, PartialEq)]
 pub enum Filter {
     Identity,
-    ObjectIndex(String, Box<Option<Filter>>),
-    ArrayIndex(usize, Box<Option<Filter>>),
-    Iterator(Box<Option<Filter>>),
+    ObjectIndex(String, bool, Box<Option<Filter>>),
+    ArrayIndex(usize, bool, Box<Option<Filter>>),
+    Iterator(bool, Box<Option<Filter>>),
 }
 
 type FilterResult = Result<Value, FilterError>;
@@ -15,14 +15,14 @@ impl Filter {
     pub fn filter(&self, value: &Value) -> FilterResult {
         match self {
             Filter::Identity => Ok(value.clone()),
-            Filter::ObjectIndex(i, next) => object_index(value, i, next),
-            Filter::ArrayIndex(i, next) => array_index(value, *i, next),
-            Filter::Iterator(next) => iterate(value, next),
+            Filter::ObjectIndex(i, opt, next) => object_index(value, i, *opt, next),
+            Filter::ArrayIndex(i, opt, next) => array_index(value, *i, *opt, next),
+            Filter::Iterator(opt, next) => iterate(value, *opt, next),
         }
     }
 }
 
-fn iterate(v: &Value, next: &Option<Filter>) -> FilterResult {
+fn iterate(v: &Value, opt: bool, next: &Option<Filter>) -> FilterResult {
     let mut vec = Vec::new();
     match v {
         Value::Object(obj) => for vv in obj.values() {
@@ -31,10 +31,11 @@ fn iterate(v: &Value, next: &Option<Filter>) -> FilterResult {
         Value::Array(arr) => for vv in arr {
             vec.push(vv.clone());
         }
-        vv => return Err(FilterError::MismatchingTypes {
+        vv if !opt => return Err(FilterError::MismatchingTypes {
             expected: "Object or Array",
             found: type_string(vv),
         }),
+        _ => {}, // Empty array
     }
 
     if let Some(n) = next {
@@ -45,7 +46,7 @@ fn iterate(v: &Value, next: &Option<Filter>) -> FilterResult {
     Ok(Value::Array(vec))
 }
 
-fn object_index(v: &Value, i: &str, next: &Option<Filter>) -> FilterResult {
+fn object_index(v: &Value, i: &str, opt: bool, next: &Option<Filter>) -> FilterResult {
     if let Value::Object(obj) = v {
         if let Some(vv) = obj.get(i) {
             let vvv = if let Some(n) = next {
@@ -55,17 +56,21 @@ fn object_index(v: &Value, i: &str, next: &Option<Filter>) -> FilterResult {
             };
             Ok(vvv)
         } else {
-            Err(FilterError::IndexDoesNotExist(i.to_string()))
+            Ok(Value::Null)
         }
     } else {
-        Err(FilterError::MismatchingTypes {
-            expected: "Object",
-            found: type_string(v),
-        })
+        if opt {
+            Ok(Value::Null)
+        } else {
+            Err(FilterError::MismatchingTypes {
+                expected: "Object",
+                found: type_string(v),
+            })
+        }
     }
 }
 
-fn array_index(v: &Value, i: usize, next: &Option<Filter>) -> FilterResult {
+fn array_index(v: &Value, i: usize, opt: bool, next: &Option<Filter>) -> FilterResult {
     if let Value::Array(arr) = v {
         if let Some(vv) = arr.get(i) {
             let vvv = if let Some(n) = next {
@@ -75,13 +80,17 @@ fn array_index(v: &Value, i: usize, next: &Option<Filter>) -> FilterResult {
             };
             Ok(vvv)
         } else {
-            Err(FilterError::IndexOutOfBounds(i))
+            Ok(Value::Null)
         }
     } else {
-        Err(FilterError::MismatchingTypes {
-            expected: "Array",
-            found: type_string(v),
-        })
+        if opt {
+            Ok(Value::Null)
+        } else {
+            Err(FilterError::MismatchingTypes {
+                expected: "Array",
+                found: type_string(v),
+            })
+        }
     }
 }
 
@@ -115,11 +124,30 @@ mod test {
         assert_eq!(r#"42"#, f.filter(&v).unwrap().to_string());
 
         let v: Value = serde_json::from_str(r#"{"notfoo": true, "alsonotfoo": false}"#).unwrap();
-        assert!(f.filter(&v).is_err());
+        assert_eq!(r#"null"#, f.filter(&v).unwrap().to_string());
 
         let v: Value = serde_json::from_str(r#"{"foo": 42}"#).unwrap();
         assert_eq!(r#"42"#, f.filter(&v).unwrap().to_string());
     }
+
+    #[test]
+    fn optional_object_index() {
+        let f: Filter = ".foo?".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"{"foo": 42, "bar": "less interesting data"}"#).unwrap();
+        assert_eq!(r#"42"#, f.filter(&v).unwrap().to_string());
+
+        let v: Value = serde_json::from_str(r#"{"notfoo": true, "alsonotfoo": false}"#).unwrap();
+        assert_eq!(r#"null"#, f.filter(&v).unwrap().to_string());
+
+        let f: Filter = ".[\"foo\"]?".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"{"foo": 42}"#).unwrap();
+        assert_eq!(r#"42"#, f.filter(&v).unwrap().to_string());
+
+        assert!("[.foo?]".parse::<Filter>().is_err()); // TODO: Implement array construction
+        //let v: Value = serde_json::from_str(r#"[1,2]"#).unwrap();
+        //assert_eq!(r#"[]"#, f.filter(&v).unwrap().to_string());
+    }
+
 
     #[test]
     fn array_index() {
@@ -128,7 +156,7 @@ mod test {
         assert_eq!(r#"{"good":true,"name":"JSON"}"#, f.filter(&v).unwrap().to_string());
 
         let f: Filter = ".[2]".parse().unwrap();
-        assert!(f.filter(&v).is_err());
+        assert_eq!(r#"null"#, f.filter(&v).unwrap().to_string());
 
         assert!(".[-2]".parse::<Filter>().is_err()); // FIXME: Implement negative indices 
         //let v: Value = serde_json::from_str(r#"[1,2,3]"#).unwrap();

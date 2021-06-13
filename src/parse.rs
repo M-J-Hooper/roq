@@ -3,7 +3,7 @@ use crate::filter::Filter;
 use nom::IResult;
 use nom::bytes::complete::*;
 use nom::branch::alt;
-use nom::combinator::eof;
+use nom::combinator::{eof, opt};
 use nom::sequence::*;
 use nom::character::complete::*;
 use nom::character::{is_alphabetic, is_digit};
@@ -48,8 +48,9 @@ fn identity(input: &[u8]) -> IResult<&[u8], Filter> {
 
 fn iterator(input: &[u8]) -> IResult<&[u8], Filter> {
     let (input, _) = tag(".[]")(input)?;
+    let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
-    Ok((input, Filter::Iterator(Box::new(next))))   
+    Ok((input, Filter::Iterator(opt.is_some(), Box::new(next))))   
 }
 
 fn object_index(input: &[u8]) -> IResult<&[u8], Filter> {
@@ -58,10 +59,11 @@ fn object_index(input: &[u8]) -> IResult<&[u8], Filter> {
         take_while1(is_alphabetic),
         delimited(tag("[\""), take_while1(is_alphabetic),  tag("\"]")) //FIXME: Escaped string
     ))(input)?;
+    let (input, opt) = opt(char('?'))(input)?;
+    let (input, next) = parser(input)?;
 
     let i = std::str::from_utf8(bytes).unwrap().to_string(); //FIXME: Handle bad utf8
-    let (input, next) = parser(input)?;
-    Ok((input, Filter::ObjectIndex(i, Box::new(next))))   
+    Ok((input, Filter::ObjectIndex(i, opt.is_some(), Box::new(next))))   
 }
 
 fn array_index(input: &[u8]) -> IResult<&[u8], Filter> {
@@ -71,10 +73,11 @@ fn array_index(input: &[u8]) -> IResult<&[u8], Filter> {
         take_while1(is_digit),  
         char(']')
     )(input)?;
+    let (input, opt) = opt(char('?'))(input)?;
+    let (input, next) = parser(input)?;
 
     let i = std::str::from_utf8(bytes).unwrap().parse().unwrap(); //FIXME: Handle bad utf8
-    let (input, next) = parser(input)?;
-    Ok((input, Filter::ArrayIndex(i, Box::new(next))))   
+    Ok((input, Filter::ArrayIndex(i, opt.is_some(), Box::new(next))))   
 }
 
 #[cfg(test)]
@@ -94,11 +97,12 @@ mod test {
         assert!(parse(".]").is_err());
         assert!(parse(".[][]").is_err());
 
-        assert_eq!(Filter::Iterator(Box::new(None)), parse(".[]").unwrap());
+        assert_eq!(Filter::Iterator(false, Box::new(None)), parse(".[]").unwrap());
+        assert_eq!(Filter::Iterator(true, Box::new(None)), parse(".[]?").unwrap());
         assert_eq!(
-            Filter::Iterator(Box::new(Some(
-                Filter::Iterator(Box::new(Some(
-                    Filter::Iterator(Box::new(None))
+            Filter::Iterator(false, Box::new(Some(
+                Filter::Iterator(false, Box::new(Some(
+                    Filter::Iterator(false, Box::new(None))
                 )))
             ))),
             parse(".[].[].[]").unwrap()
@@ -114,12 +118,14 @@ mod test {
         assert!(parse(".[\"foo]").is_err());
         assert!(parse(".[foo\"]").is_err());
 
-        assert_eq!(Filter::ObjectIndex("foo".to_string(), Box::new(None)), parse(".foo").unwrap());
-        assert_eq!(Filter::ObjectIndex("foo".to_string(), Box::new(None)), parse(".[\"foo\"]").unwrap());
+        assert_eq!(Filter::ObjectIndex("foo".to_string(), false, Box::new(None)), parse(".foo").unwrap());
+        assert_eq!(Filter::ObjectIndex("foo".to_string(), true, Box::new(None)), parse(".foo?").unwrap());
+        assert_eq!(Filter::ObjectIndex("foo".to_string(), false, Box::new(None)), parse(".[\"foo\"]").unwrap());
+        assert_eq!(Filter::ObjectIndex("foo".to_string(), true, Box::new(None)), parse(".[\"foo\"]?").unwrap());
         assert_eq!(
-            Filter::ObjectIndex("foo".to_string(), Box::new(Some(
-                Filter::ObjectIndex("bar".to_string(), Box::new(Some(
-                    Filter::ObjectIndex("baz".to_string(), Box::new(None))
+            Filter::ObjectIndex("foo".to_string(), false, Box::new(Some(
+                Filter::ObjectIndex("bar".to_string(), false, Box::new(Some(
+                    Filter::ObjectIndex("baz".to_string(), false, Box::new(None))
                 )))
             ))),
             parse(".foo.bar.baz").unwrap()
@@ -130,14 +136,15 @@ mod test {
     fn array_index() {
         assert!(parse("[0]").is_err());
         assert!(parse(".[a]").is_err());
-        assert!(parse(".[-1]").is_err());
+        assert!(parse(".[-1]").is_err()); // TODO: Accept negative indices
 
-        assert_eq!(Filter::ArrayIndex(0, Box::new(None)), parse(".[0]").unwrap());
-        assert_eq!(Filter::ArrayIndex(9001, Box::new(None)), parse(".[9001]").unwrap());
+        assert_eq!(Filter::ArrayIndex(0, false, Box::new(None)), parse(".[0]").unwrap());
+        assert_eq!(Filter::ArrayIndex(0, true, Box::new(None)), parse(".[0]?").unwrap());
+        assert_eq!(Filter::ArrayIndex(9001, false, Box::new(None)), parse(".[9001]").unwrap());
         assert_eq!(
-            Filter::ArrayIndex(5, Box::new(Some(
-                Filter::ArrayIndex(8, Box::new(Some(
-                    Filter::ArrayIndex(13, Box::new(None))
+            Filter::ArrayIndex(5, false, Box::new(Some(
+                Filter::ArrayIndex(8, false, Box::new(Some(
+                    Filter::ArrayIndex(13, false, Box::new(None))
                 )))
             ))),
             parse(".[5].[8].[13]").unwrap()
