@@ -1,6 +1,7 @@
 use crate::FilterError;
 use serde_json::Value;
 
+#[derive(Debug, PartialEq)]
 pub enum Filter {
     Identity,
     ObjectIndex(String, Box<Option<Filter>>),
@@ -92,5 +93,58 @@ fn type_string(v: &Value) -> &'static str {
         Value::String(_) => "String",
         Value::Array(_) => "Array",
         Value::Object(_) => "Object",
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    // Tests are taken from examples at https://stedolan.github.io/jq/manual
+
+    #[test]
+    fn identity() {
+        let f: Filter = ".".parse().unwrap();
+        let v: Value = serde_json::from_str(r#""Hello world!""#).unwrap();
+        assert_eq!(r#""Hello world!""#, f.filter(&v).unwrap().to_string());
+    }
+
+    #[test]
+    fn object_index() {
+        let f: Filter = ".foo".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"{"foo": 42, "bar": "less interesting data"}"#).unwrap();
+        assert_eq!(r#"42"#, f.filter(&v).unwrap().to_string());
+
+        let v: Value = serde_json::from_str(r#"{"notfoo": true, "alsonotfoo": false}"#).unwrap();
+        assert!(f.filter(&v).is_err());
+
+        let v: Value = serde_json::from_str(r#"{"foo": 42}"#).unwrap();
+        assert_eq!(r#"42"#, f.filter(&v).unwrap().to_string());
+    }
+
+    #[test]
+    fn array_index() {
+        let f: Filter = ".[0]".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"[{"name":"JSON", "good":true},{"name":"XML", "good":false}]"#).unwrap();
+        assert_eq!(r#"{"good":true,"name":"JSON"}"#, f.filter(&v).unwrap().to_string());
+
+        let f: Filter = ".[2]".parse().unwrap();
+        assert!(f.filter(&v).is_err());
+
+        assert!(".[-2]".parse::<Filter>().is_err()); // FIXME: Implement negative indices 
+        //let v: Value = serde_json::from_str(r#"[1,2,3]"#).unwrap();
+        //assert_eq!(r#"2"#, f.filter(&v).unwrap().to_string());
+    }
+
+    #[test]
+    fn iterator() {
+        let f: Filter = ".[]".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"[{"name":"JSON", "good":true}, {"name":"XML", "good":false}]"#).unwrap();
+        assert_eq!(r#"[{"good":true,"name":"JSON"},{"good":false,"name":"XML"}]"#, f.filter(&v).unwrap().to_string());
+
+        let v: Value = serde_json::from_str(r#"[]"#).unwrap();
+        assert_eq!(r#"[]"#, f.filter(&v).unwrap().to_string());
+
+        let v: Value = serde_json::from_str(r#"{"a": 1, "b": 1}"#).unwrap();
+        assert_eq!(r#"[1,1]"#, f.filter(&v).unwrap().to_string());
     }
 }

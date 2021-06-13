@@ -1,8 +1,24 @@
+use std::fmt::Debug;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum FormatError {
+pub enum ParseError {
+    #[error("Leftover characters after parsing: {0}")]
+    LeftoverCharacters(String),
+    #[error("Invalid format: {0}")]
+    InvalidFormat(String),
+    #[error("Empty input")]
+    EmptyInput
+}
 
+impl<E: std::fmt::Debug> From<nom::Err<E>> for ParseError {
+    fn from(err: nom::Err<E>) -> Self {
+        let s =match err {
+            nom::Err::Incomplete(n) => format!("{:?}", n),
+            nom::Err::Error(e) | nom::Err::Failure(e) => format!("{:?}", e),
+        };
+        ParseError::InvalidFormat(s)
+    }
 }
 
 #[derive(Error, Debug)]
@@ -19,11 +35,4 @@ pub enum FilterError {
 }
 
 mod filter;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+mod parse;
