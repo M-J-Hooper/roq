@@ -1,12 +1,12 @@
 use crate::FilterError;
 use serde_json::Value;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Filter {
     Identity,
-    ObjectIndex(String, bool, Box<Option<Filter>>),
-    ArrayIndex(usize, bool, Box<Option<Filter>>),
-    Iterator(bool, Box<Option<Filter>>),
+    ObjectIndex(String, bool, Box<Filter>),
+    ArrayIndex(usize, bool, Box<Filter>),
+    Iterator(bool, Box<Filter>),
 }
 
 type FilterResult = Result<Vec<Value>, FilterError>;
@@ -35,7 +35,7 @@ fn empty() -> FilterResult {
     Ok(Vec::new())
 }
 
-fn iterate(v: &Value, opt: bool, next: &Option<Filter>) -> FilterResult {
+fn iterate(v: &Value, opt: bool, next: &Filter) -> FilterResult {
     let mut vec = Vec::new();
     match v {
         Value::Object(obj) => for vv in obj.values() {
@@ -51,26 +51,18 @@ fn iterate(v: &Value, opt: bool, next: &Option<Filter>) -> FilterResult {
         _ => return empty(),
     }
 
-    if let Some(n) = next {
-        vec = vec.iter()
-            .map(|vv| n.filter(vv))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-    }
-    Ok(vec)
+    Ok(vec.iter()
+        .map(|vv| next.filter(vv))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect())
 }
 
-fn object_index(v: &Value, i: &str, opt: bool, next: &Option<Filter>) -> FilterResult {
+fn object_index(v: &Value, i: &str, opt: bool, next: &Filter) -> FilterResult {
     if let Value::Object(obj) = v {
         if let Some(vv) = obj.get(i) {
-            let vvv = if let Some(n) = next {
-                n.filter(vv)?
-            } else {
-                vec![vv.clone()]
-            };
-            Ok(vvv)
+            next.filter(vv)
         } else {
             null()
         }
@@ -86,15 +78,10 @@ fn object_index(v: &Value, i: &str, opt: bool, next: &Option<Filter>) -> FilterR
     }
 }
 
-fn array_index(v: &Value, i: usize, opt: bool, next: &Option<Filter>) -> FilterResult {
+fn array_index(v: &Value, i: usize, opt: bool, next: &Filter) -> FilterResult {
     if let Value::Array(arr) = v {
         if let Some(vv) = arr.get(i) {
-            let vvv = if let Some(n) = next {
-                n.filter(vv)?
-            } else {
-                vec![vv.clone()]
-            };
-            Ok(vvv)
+            next.filter(vv)
         } else {
             null()
         }

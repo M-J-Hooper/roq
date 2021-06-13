@@ -3,7 +3,7 @@ use crate::filter::Filter;
 use nom::IResult;
 use nom::bytes::complete::*;
 use nom::branch::alt;
-use nom::combinator::{eof, opt};
+use nom::combinator::{eof, opt, value};
 use nom::sequence::*;
 use nom::character::complete::*;
 use nom::character::{is_alphabetic, is_digit};
@@ -19,31 +19,29 @@ impl std::str::FromStr for Filter {
 }
 
 fn parse(input: &str) -> ParseResult {
+    if let (_, Some(_)) = identity(input.as_bytes())? {
+        return Ok(Filter::Identity);
+    }
+
     let (leftover, filter) = parser(input.as_bytes())?;
     if !leftover.is_empty() {
         let s = std::str::from_utf8(leftover).unwrap();
         return Err(ParseError::LeftoverCharacters(s.to_string()));
     }
-    filter.ok_or(ParseError::EmptyInput)
+    Ok(filter)
 }
 
-fn parser(input: &[u8]) -> IResult<&[u8], Option<Filter>> {
-    Ok(if input.is_empty() {
-        (input, None)
-    } else {
-        let (input, filter) = alt((
-            object_index,
-            array_index,
-            iterator,
-            identity
-        ))(input)?;
-        (input, Some(filter))
-    })
+fn parser(input: &[u8]) -> IResult<&[u8], Filter> {
+    alt((
+        object_index,
+        array_index,
+        iterator,
+        value(Filter::Identity, eof)
+    ))(input)
 }
 
-fn identity(input: &[u8]) -> IResult<&[u8], Filter> {
-    let (input, _) = terminated(char('.'), eof)(input)?;
-    Ok((input, Filter::Identity))
+fn identity(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
+    opt(terminated(tag("."), eof))(input)
 }
 
 fn iterator(input: &[u8]) -> IResult<&[u8], Filter> {
@@ -97,14 +95,14 @@ mod test {
         assert!(parse(".]").is_err());
         assert!(parse(".[][]").is_err());
 
-        assert_eq!(Filter::Iterator(false, Box::new(None)), parse(".[]").unwrap());
-        assert_eq!(Filter::Iterator(true, Box::new(None)), parse(".[]?").unwrap());
+        assert_eq!(Filter::Iterator(false, Box::new(Filter::Identity)), parse(".[]").unwrap());
+        assert_eq!(Filter::Iterator(true, Box::new(Filter::Identity)), parse(".[]?").unwrap());
         assert_eq!(
-            Filter::Iterator(false, Box::new(Some(
-                Filter::Iterator(false, Box::new(Some(
-                    Filter::Iterator(false, Box::new(None))
-                )))
-            ))),
+            Filter::Iterator(false, Box::new(
+                Filter::Iterator(false, Box::new(
+                    Filter::Iterator(false, Box::new(Filter::Identity))
+                ))
+            )),
             parse(".[].[].[]").unwrap()
         );
     }
@@ -118,16 +116,16 @@ mod test {
         assert!(parse(".[\"foo]").is_err());
         assert!(parse(".[foo\"]").is_err());
 
-        assert_eq!(Filter::ObjectIndex("foo".to_string(), false, Box::new(None)), parse(".foo").unwrap());
-        assert_eq!(Filter::ObjectIndex("foo".to_string(), true, Box::new(None)), parse(".foo?").unwrap());
-        assert_eq!(Filter::ObjectIndex("foo".to_string(), false, Box::new(None)), parse(".[\"foo\"]").unwrap());
-        assert_eq!(Filter::ObjectIndex("foo".to_string(), true, Box::new(None)), parse(".[\"foo\"]?").unwrap());
+        assert_eq!(Filter::ObjectIndex("foo".to_string(), false, Box::new(Filter::Identity)), parse(".foo").unwrap());
+        assert_eq!(Filter::ObjectIndex("foo".to_string(), true, Box::new(Filter::Identity)), parse(".foo?").unwrap());
+        assert_eq!(Filter::ObjectIndex("foo".to_string(), false, Box::new(Filter::Identity)), parse(".[\"foo\"]").unwrap());
+        assert_eq!(Filter::ObjectIndex("foo".to_string(), true, Box::new(Filter::Identity)), parse(".[\"foo\"]?").unwrap());
         assert_eq!(
-            Filter::ObjectIndex("foo".to_string(), false, Box::new(Some(
-                Filter::ObjectIndex("bar".to_string(), false, Box::new(Some(
-                    Filter::ObjectIndex("baz".to_string(), false, Box::new(None))
-                )))
-            ))),
+            Filter::ObjectIndex("foo".to_string(), false, Box::new(
+                Filter::ObjectIndex("bar".to_string(), false, Box::new(
+                    Filter::ObjectIndex("baz".to_string(), false, Box::new(Filter::Identity))
+                ))
+            )),
             parse(".foo.bar.baz").unwrap()
         );
     }
@@ -138,15 +136,15 @@ mod test {
         assert!(parse(".[a]").is_err());
         assert!(parse(".[-1]").is_err()); // TODO: Accept negative indices
 
-        assert_eq!(Filter::ArrayIndex(0, false, Box::new(None)), parse(".[0]").unwrap());
-        assert_eq!(Filter::ArrayIndex(0, true, Box::new(None)), parse(".[0]?").unwrap());
-        assert_eq!(Filter::ArrayIndex(9001, false, Box::new(None)), parse(".[9001]").unwrap());
+        assert_eq!(Filter::ArrayIndex(0, false, Box::new(Filter::Identity)), parse(".[0]").unwrap());
+        assert_eq!(Filter::ArrayIndex(0, true, Box::new(Filter::Identity)), parse(".[0]?").unwrap());
+        assert_eq!(Filter::ArrayIndex(9001, false, Box::new(Filter::Identity)), parse(".[9001]").unwrap());
         assert_eq!(
-            Filter::ArrayIndex(5, false, Box::new(Some(
-                Filter::ArrayIndex(8, false, Box::new(Some(
-                    Filter::ArrayIndex(13, false, Box::new(None))
-                )))
-            ))),
+            Filter::ArrayIndex(5, false, Box::new(
+                Filter::ArrayIndex(8, false, Box::new(
+                    Filter::ArrayIndex(13, false, Box::new(Filter::Identity))
+                ))
+            )),
             parse(".[5].[8].[13]").unwrap()
         );
     }
