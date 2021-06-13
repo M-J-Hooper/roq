@@ -7,8 +7,6 @@ pub enum ParseError {
     LeftoverCharacters(String),
     #[error("Invalid format: {0}")]
     InvalidFormat(String),
-    #[error("Empty input")]
-    EmptyInput
 }
 
 impl<E: std::fmt::Debug> From<nom::Err<E>> for ParseError {

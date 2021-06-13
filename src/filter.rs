@@ -3,6 +3,7 @@ use serde_json::Value;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Filter {
+    Empty,
     Identity,
     ObjectIndex(String, bool, Box<Filter>),
     ArrayIndex(usize, bool, Box<Filter>),
@@ -17,6 +18,7 @@ impl Filter {
             return null();
         }
         match self {
+            Filter::Empty => empty(),
             Filter::Identity => single(value.clone()),
             Filter::ObjectIndex(i, opt, next) => object_index(value, i, *opt, next),
             Filter::ArrayIndex(i, opt, next) => array_index(value, *i, *opt, next),

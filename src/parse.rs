@@ -19,16 +19,25 @@ impl std::str::FromStr for Filter {
 }
 
 fn parse(input: &str) -> ParseResult {
-    if let (_, Some(_)) = identity(input.as_bytes())? {
-        return Ok(Filter::Identity);
+    if input.is_empty() {
+        return Ok(Filter::Empty);
     }
 
-    let (leftover, filter) = parser(input.as_bytes())?;
+    let (leftover, filter) = init_parser(input.as_bytes())?;
     if !leftover.is_empty() {
         let s = std::str::from_utf8(leftover).unwrap();
         return Err(ParseError::LeftoverCharacters(s.to_string()));
     }
     Ok(filter)
+}
+
+fn init_parser(input: &[u8]) -> IResult<&[u8], Filter> {
+    alt((
+        object_index,
+        preceded(char('.'), array_index),
+        preceded(char('.'), iterator),
+        value(Filter::Identity, preceded(char('.'), eof))
+    ))(input)
 }
 
 fn parser(input: &[u8]) -> IResult<&[u8], Filter> {
@@ -40,12 +49,8 @@ fn parser(input: &[u8]) -> IResult<&[u8], Filter> {
     ))(input)
 }
 
-fn identity(input: &[u8]) -> IResult<&[u8], Option<&[u8]>> {
-    opt(terminated(tag("."), eof))(input)
-}
-
 fn iterator(input: &[u8]) -> IResult<&[u8], Filter> {
-    let (input, _) = tag(".[]")(input)?;
+    let (input, _) = tag("[]")(input)?;
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
     Ok((input, Filter::Iterator(opt.is_some(), Box::new(next))))   
@@ -65,7 +70,6 @@ fn object_index(input: &[u8]) -> IResult<&[u8], Filter> {
 }
 
 fn array_index(input: &[u8]) -> IResult<&[u8], Filter> {
-    let (input, _) = char('.')(input)?;
     let (input, bytes) = delimited(
         char('['), 
         take_while1(is_digit),  
@@ -83,9 +87,10 @@ mod test {
     use super::*;
 
     #[test]
-    fn identity() {
+    fn simple() {
         assert!(parse("...").is_err());
         assert_eq!(Filter::Identity, parse(".").unwrap());
+        assert_eq!(Filter::Empty, parse("").unwrap());
     }
 
     #[test]
@@ -93,7 +98,7 @@ mod test {
         assert!(parse("[]").is_err());
         assert!(parse(".[").is_err());
         assert!(parse(".]").is_err());
-        assert!(parse(".[][]").is_err());
+        assert!(parse(".[].[]").is_err());
 
         assert_eq!(Filter::Iterator(false, Box::new(Filter::Identity)), parse(".[]").unwrap());
         assert_eq!(Filter::Iterator(true, Box::new(Filter::Identity)), parse(".[]?").unwrap());
@@ -103,7 +108,7 @@ mod test {
                     Filter::Iterator(false, Box::new(Filter::Identity))
                 ))
             )),
-            parse(".[].[].[]").unwrap()
+            parse(".[][][]").unwrap()
         );
     }
 
@@ -135,6 +140,7 @@ mod test {
         assert!(parse("[0]").is_err());
         assert!(parse(".[a]").is_err());
         assert!(parse(".[-1]").is_err()); // TODO: Accept negative indices
+        assert!(parse(".[0].[0]").is_err());
 
         assert_eq!(Filter::ArrayIndex(0, false, Box::new(Filter::Identity)), parse(".[0]").unwrap());
         assert_eq!(Filter::ArrayIndex(0, true, Box::new(Filter::Identity)), parse(".[0]?").unwrap());
@@ -145,7 +151,7 @@ mod test {
                     Filter::ArrayIndex(13, false, Box::new(Filter::Identity))
                 ))
             )),
-            parse(".[5].[8].[13]").unwrap()
+            parse(".[5][8][13]").unwrap()
         );
     }
 }
