@@ -15,19 +15,21 @@ impl Range {
     }
 
     pub fn normalize(&self, len: usize) -> std::ops::Range<usize> {
-        let normalize_bound = |bound: isize| if bound < 0 {
-            let u = -bound as usize;
-            if u > len {
-                0
+        let normalize_bound = |bound: isize| {
+            if bound < 0 {
+                let u = -bound as usize;
+                if u > len {
+                    0
+                } else {
+                    len - u
+                }
             } else {
-                len - u
-            }
-        } else {
-            let u = bound as usize;
-            if u > len {
-                len
-            } else {
-                u
+                let u = bound as usize;
+                if u > len {
+                    len
+                } else {
+                    u
+                }
             }
         };
 
