@@ -1,9 +1,10 @@
 use crate::ParseError;
 use crate::filter::Filter;
+use crate::range::Range;
 use nom::IResult;
 use nom::bytes::complete::*;
 use nom::branch::alt;
-use nom::combinator::{eof, opt, value};
+use nom::combinator::*;
 use nom::sequence::*;
 use nom::character::complete::*;
 use nom::character::{is_alphabetic, is_digit};
@@ -34,6 +35,7 @@ fn parse(input: &str) -> ParseResult {
 fn init_parser(input: &[u8]) -> IResult<&[u8], Filter> {
     alt((
         object_index,
+        preceded(char('.'), slice),
         preceded(char('.'), array_index),
         preceded(char('.'), iterator),
         value(Filter::Identity, preceded(char('.'), eof))
@@ -43,6 +45,7 @@ fn init_parser(input: &[u8]) -> IResult<&[u8], Filter> {
 fn parser(input: &[u8]) -> IResult<&[u8], Filter> {
     alt((
         object_index,
+        slice,
         array_index,
         iterator,
         value(Filter::Identity, eof)
@@ -70,16 +73,44 @@ fn object_index(input: &[u8]) -> IResult<&[u8], Filter> {
 }
 
 fn array_index(input: &[u8]) -> IResult<&[u8], Filter> {
-    let (input, bytes) = delimited(
+    let (input, i) = delimited(
         char('['), 
-        take_while1(is_digit),  
+        num,  
         char(']')
     )(input)?;
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
 
-    let i = std::str::from_utf8(bytes).unwrap().parse().unwrap(); //FIXME: Handle bad utf8
     Ok((input, Filter::ArrayIndex(i, opt.is_some(), Box::new(next))))   
+}
+
+fn slice(input: &[u8]) -> IResult<&[u8], Filter> {
+    let (input, r) = delimited(
+        char('['), 
+        alt((
+            map(separated_pair(num, char(':'), num), Range::new),
+            map(preceded(char(':'), num), Range::upper),
+            map(terminated(num, char(':')), Range::lower)
+        )),  
+        char(']')
+    )(input)?;
+    let (input, opt) = opt(char('?'))(input)?;
+    let (input, next) = parser(input)?;
+
+    Ok((input, Filter::Slice(r, opt.is_some(), Box::new(next))))
+}
+
+fn num(input: &[u8]) -> IResult<&[u8], isize> {
+    let (input, neg) = opt(char('-'))(input)?;
+    let (input, mut i) = map_res(
+        map_res(take_while1(is_digit), std::str::from_utf8),
+        std::str::FromStr::from_str
+    )(input)?;
+
+    if neg.is_some() {
+        i *= -1;
+    }
+    Ok((input, i))
 }
 
 #[cfg(test)]
@@ -139,10 +170,10 @@ mod test {
     fn array_index() {
         assert!(parse("[0]").is_err());
         assert!(parse(".[a]").is_err());
-        assert!(parse(".[-1]").is_err()); // TODO: Accept negative indices
         assert!(parse(".[0].[0]").is_err());
 
         assert_eq!(Filter::ArrayIndex(0, false, Box::new(Filter::Identity)), parse(".[0]").unwrap());
+        assert_eq!(Filter::ArrayIndex(-1, false, Box::new(Filter::Identity)), parse(".[-1]").unwrap());
         assert_eq!(Filter::ArrayIndex(0, true, Box::new(Filter::Identity)), parse(".[0]?").unwrap());
         assert_eq!(Filter::ArrayIndex(9001, false, Box::new(Filter::Identity)), parse(".[9001]").unwrap());
         assert_eq!(
@@ -153,5 +184,20 @@ mod test {
             )),
             parse(".[5][8][13]").unwrap()
         );
+    }
+
+    #[test]
+    fn slice() {
+        assert!(parse(".[:]").is_err());
+        assert!(parse(".[1::2]").is_err());
+        assert!(parse(".[:2:]").is_err());
+        assert!(parse(".[--2]").is_err());
+        assert!(parse(".[-2:4:]").is_err());
+        assert!(parse(".[:-2:4]").is_err());
+
+        assert_eq!(Filter::Slice(Range::new((-1, 2)), false, Box::new(Filter::Identity)), parse(".[-1:2]").unwrap());
+        assert_eq!(Filter::Slice(Range::upper(2), false, Box::new(Filter::Identity)), parse(".[:2]").unwrap());
+        assert_eq!(Filter::Slice(Range::lower(1), true, Box::new(Filter::Identity)), parse(".[1:]?").unwrap());
+        assert_eq!(Filter::Slice(Range::new((9001, -9001)), false, Box::new(Filter::Identity)), parse(".[9001:-9001]").unwrap());
     }
 }
