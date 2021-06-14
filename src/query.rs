@@ -1,30 +1,31 @@
 use crate::range::Range;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use thiserror::Error;
 
 type QueryResult = Result<Vec<Value>, QueryError>;
 
 #[derive(Error, Debug)]
 pub enum QueryError {
-    #[error("Array index is out of bounds: {0}")]
-    IndexOutOfBounds(usize),
-    #[error("Object index does not exist: {0}")]
-    IndexDoesNotExist(String),
-    #[error("Mismatching types: expected {expected:?}, found {found:?}")]
-    MismatchingTypes {
-        expected: &'static str,
-        found: &'static str,
-    },
+    #[error("Cannot index {0} with {1}")]
+    Index(&'static str, &'static str),
+    #[error("Cannot iterate over {0}")]
+    Iterate(&'static str),
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Query {
     Empty,
     Identity,
-    ObjectIndex(String, bool, Box<Query>),
-    ArrayIndex(isize, bool, Box<Query>),
-    Slice(Range, bool, Box<Query>),
+    Index(Index, bool, Box<Query>),
     Iterator(bool, Box<Query>),
+    Spliterator(bool, Vec<Query>),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Index {
+    String(String),
+    Integer(isize),
+    Slice(Range),
 }
 
 impl Query {
@@ -35,10 +36,9 @@ impl Query {
         match self {
             Query::Empty => empty(),
             Query::Identity => single(value.clone()),
-            Query::ObjectIndex(i, opt, next) => object_index(value, i, *opt, next),
-            Query::ArrayIndex(i, opt, next) => array_index(value, *i, *opt, next),
-            Query::Slice(r, opt, next) => slice(value, r, *opt, next),
-            Query::Iterator(opt, next) => iterate(value, *opt, next),
+            Query::Index(i, opt, next) => check(index(value, i, next), *opt),
+            Query::Iterator(opt, next) => check(iterate(value, next), *opt),
+            Query::Spliterator(opt, queries) => check(split(value, queries), *opt),
         }
     }
 }
@@ -53,116 +53,93 @@ fn empty() -> QueryResult {
     Ok(Vec::new())
 }
 
-fn iterate(v: &Value, opt: bool, next: &Query) -> QueryResult {
-    let mut vec = Vec::new();
-    match v {
-        Value::Object(obj) => {
-            for vv in obj.values() {
-                vec.push(vv.clone());
-            }
-        }
-        Value::Array(arr) => {
-            for vv in arr {
-                vec.push(vv.clone());
-            }
-        }
-        vv if !opt => {
-            return Err(QueryError::MismatchingTypes {
-                expected: "Object or Array",
-                found: type_string(vv),
-            })
-        }
-        _ => return empty(),
+fn check(r: QueryResult, opt: bool) -> QueryResult {
+    if r.is_ok() || !opt {
+        r
+    } else {
+        empty()
     }
+}
 
-    Ok(vec
-        .iter()
-        .map(|vv| next.execute(vv))
+fn index(v: &Value, i: &Index, next: &Query) -> QueryResult {
+    match (v, i) {
+        (Value::String(s), Index::Slice(r)) => {
+            let range = r.normalize(s.len());
+            let sliced = s[range].to_string();
+            next.execute(&Value::String(sliced))
+        }
+        (Value::Array(vec), Index::Slice(r)) => {
+            let range = r.normalize(vec.len());
+            let sliced = vec[range].to_vec();
+            next.execute(&Value::Array(sliced))
+        }
+        (Value::Object(map), Index::String(s)) => object_index(map, s, next),
+        (Value::Array(arr), Index::Integer(i)) => array_index(arr, *i, next),
+        (v, Index::String(_)) => Err(QueryError::Index(type_str(v), "string")),
+        (v, Index::Integer(_)) => Err(QueryError::Index(type_str(v), "number")),
+        (v, Index::Slice(_)) => Err(QueryError::Index(type_str(v), "slice")),
+    }
+}
+
+fn split<'a, I: IntoIterator<Item = &'a Query>>(v: &Value, iter: I) -> QueryResult {
+    iterate_results(iter.into_iter().map(|q| q.execute(&v.clone())))
+}
+
+fn iterate(v: &Value, next: &Query) -> QueryResult {
+    match v {
+        Value::Array(arr) => iterate_values(arr, next),
+        Value::Object(map) => iterate_values(map.values(), next),
+        v => Err(QueryError::Iterate(type_str(v))),
+    }
+}
+
+fn iterate_values<'a, I: IntoIterator<Item = &'a Value>>(iter: I, next: &Query) -> QueryResult {
+    iterate_results(iter.into_iter().map(|vv| next.execute(vv)))
+}
+
+fn iterate_results<'a, I: IntoIterator<Item = QueryResult>>(iter: I) -> QueryResult {
+    Ok(iter
+        .into_iter()
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .flatten()
         .collect())
 }
 
-fn object_index(v: &Value, i: &str, opt: bool, next: &Query) -> QueryResult {
-    if let Value::Object(obj) = v {
-        if let Some(vv) = obj.get(i) {
-            next.execute(vv)
-        } else {
-            null()
-        }
+fn object_index(map: &Map<String, Value>, s: &str, next: &Query) -> QueryResult {
+    if let Some(vv) = map.get(s) {
+        next.execute(vv)
     } else {
-        if opt {
-            empty()
-        } else {
-            Err(QueryError::MismatchingTypes {
-                expected: "Object",
-                found: type_string(v),
-            })
-        }
+        null()
     }
 }
 
-fn array_index(v: &Value, i: isize, opt: bool, next: &Query) -> QueryResult {
-    if let Value::Array(arr) = v {
-        let index = if i < 0 {
-            let j = -i as usize;
-            if j >= arr.len() {
-                return null();
-            }
-            arr.len() - j
-        } else {
-            i as usize
-        };
-
-        if let Some(vv) = arr.get(index) {
-            next.execute(vv)
-        } else {
-            null()
+fn array_index(arr: &Vec<Value>, i: isize, next: &Query) -> QueryResult {
+    let index = if i < 0 {
+        let j = -i as usize;
+        if j >= arr.len() {
+            return null();
         }
+        arr.len() - j
     } else {
-        if opt {
-            empty()
-        } else {
-            Err(QueryError::MismatchingTypes {
-                expected: "Array",
-                found: type_string(v),
-            })
-        }
-    }
-}
-
-fn slice(v: &Value, r: &Range, opt: bool, next: &Box<Query>) -> QueryResult {
-    let vv = match v {
-        Value::Array(vec) => {
-            let range = r.normalize(vec.len());
-            let sliced = vec[range].to_vec();
-            Value::Array(sliced)
-        }
-        Value::String(s) => {
-            let range = r.normalize(s.len());
-            let sliced = s[range].to_string();
-            Value::String(sliced)
-        }
-        vv if !opt => {
-            return Err(QueryError::MismatchingTypes {
-                expected: "Array or String",
-                found: type_string(vv),
-            })
-        }
-        _ => return empty(),
+        i as usize
     };
-    next.execute(&vv)
+
+    if let Some(vv) = arr.get(index) {
+        next.execute(vv)
+    } else {
+        null()
+    }
 }
 
-fn type_string(v: &Value) -> &'static str {
+fn type_str(v: &Value) -> &'static str {
     match v {
-        Value::Null => "Null",
-        Value::Bool(_) => "Bool",
-        Value::Number(_) => "Number",
-        Value::String(_) => "String",
-        Value::Array(_) => "Array",
-        Value::Object(_) => "Object",
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
     }
 }
 

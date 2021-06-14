@@ -1,4 +1,4 @@
-use crate::query::Query;
+use crate::query::{Index, Query};
 use crate::range::Range;
 use nom::{
     branch::alt,
@@ -88,7 +88,10 @@ fn object_index(input: &[u8]) -> IResult<&[u8], Query> {
     let (input, next) = parser(input)?;
 
     let i = std::str::from_utf8(bytes).unwrap().to_string(); //FIXME: Handle bad utf8
-    Ok((input, Query::ObjectIndex(i, opt.is_some(), Box::new(next))))
+    Ok((
+        input,
+        Query::Index(Index::String(i), opt.is_some(), Box::new(next)),
+    ))
 }
 
 fn array_index(input: &[u8]) -> IResult<&[u8], Query> {
@@ -96,7 +99,10 @@ fn array_index(input: &[u8]) -> IResult<&[u8], Query> {
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
 
-    Ok((input, Query::ArrayIndex(i, opt.is_some(), Box::new(next))))
+    Ok((
+        input,
+        Query::Index(Index::Integer(i), opt.is_some(), Box::new(next)),
+    ))
 }
 
 fn slice(input: &[u8]) -> IResult<&[u8], Query> {
@@ -112,7 +118,10 @@ fn slice(input: &[u8]) -> IResult<&[u8], Query> {
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
 
-    Ok((input, Query::Slice(r, opt.is_some(), Box::new(next))))
+    Ok((
+        input,
+        Query::Index(Index::Slice(r), opt.is_some(), Box::new(next)),
+    ))
 }
 
 fn num(input: &[u8]) -> IResult<&[u8], isize> {
@@ -176,30 +185,46 @@ mod test {
         assert!(parse(".[foo\"]").is_err());
 
         assert_eq!(
-            Query::ObjectIndex("foo".to_string(), false, Box::new(Query::Identity)),
+            Query::Index(
+                Index::String("foo".to_string()),
+                false,
+                Box::new(Query::Identity)
+            ),
             parse(".foo").unwrap()
         );
         assert_eq!(
-            Query::ObjectIndex("foo".to_string(), true, Box::new(Query::Identity)),
+            Query::Index(
+                Index::String("foo".to_string()),
+                true,
+                Box::new(Query::Identity)
+            ),
             parse(".foo?").unwrap()
         );
         assert_eq!(
-            Query::ObjectIndex("foo".to_string(), false, Box::new(Query::Identity)),
+            Query::Index(
+                Index::String("foo".to_string()),
+                false,
+                Box::new(Query::Identity)
+            ),
             parse(".[\"foo\"]").unwrap()
         );
         assert_eq!(
-            Query::ObjectIndex("foo".to_string(), true, Box::new(Query::Identity)),
+            Query::Index(
+                Index::String("foo".to_string()),
+                true,
+                Box::new(Query::Identity)
+            ),
             parse(".[\"foo\"]?").unwrap()
         );
         assert_eq!(
-            Query::ObjectIndex(
-                "foo".to_string(),
+            Query::Index(
+                Index::String("foo".to_string()),
                 false,
-                Box::new(Query::ObjectIndex(
-                    "bar".to_string(),
+                Box::new(Query::Index(
+                    Index::String("bar".to_string()),
                     false,
-                    Box::new(Query::ObjectIndex(
-                        "baz".to_string(),
+                    Box::new(Query::Index(
+                        Index::String("baz".to_string()),
                         false,
                         Box::new(Query::Identity)
                     ))
@@ -216,29 +241,33 @@ mod test {
         assert!(parse(".[0].[0]").is_err());
 
         assert_eq!(
-            Query::ArrayIndex(0, false, Box::new(Query::Identity)),
+            Query::Index(Index::Integer(0), false, Box::new(Query::Identity)),
             parse(".[0]").unwrap()
         );
         assert_eq!(
-            Query::ArrayIndex(-1, false, Box::new(Query::Identity)),
+            Query::Index(Index::Integer(-1), false, Box::new(Query::Identity)),
             parse(".[-1]").unwrap()
         );
         assert_eq!(
-            Query::ArrayIndex(0, true, Box::new(Query::Identity)),
+            Query::Index(Index::Integer(0), true, Box::new(Query::Identity)),
             parse(".[0]?").unwrap()
         );
         assert_eq!(
-            Query::ArrayIndex(9001, false, Box::new(Query::Identity)),
+            Query::Index(Index::Integer(9001), false, Box::new(Query::Identity)),
             parse(".[9001]").unwrap()
         );
         assert_eq!(
-            Query::ArrayIndex(
-                5,
+            Query::Index(
+                Index::Integer(5),
                 false,
-                Box::new(Query::ArrayIndex(
-                    8,
+                Box::new(Query::Index(
+                    Index::Integer(8),
                     false,
-                    Box::new(Query::ArrayIndex(13, false, Box::new(Query::Identity)))
+                    Box::new(Query::Index(
+                        Index::Integer(13),
+                        false,
+                        Box::new(Query::Identity)
+                    ))
                 ))
             ),
             parse(".[5][8][13]").unwrap()
@@ -255,19 +284,35 @@ mod test {
         assert!(parse(".[:-2:4]").is_err());
 
         assert_eq!(
-            Query::Slice(Range::new((-1, 2)), false, Box::new(Query::Identity)),
+            Query::Index(
+                Index::Slice(Range::new((-1, 2))),
+                false,
+                Box::new(Query::Identity)
+            ),
             parse(".[-1:2]").unwrap()
         );
         assert_eq!(
-            Query::Slice(Range::upper(2), false, Box::new(Query::Identity)),
+            Query::Index(
+                Index::Slice(Range::upper(2)),
+                false,
+                Box::new(Query::Identity)
+            ),
             parse(".[:2]").unwrap()
         );
         assert_eq!(
-            Query::Slice(Range::lower(1), true, Box::new(Query::Identity)),
+            Query::Index(
+                Index::Slice(Range::lower(1)),
+                true,
+                Box::new(Query::Identity)
+            ),
             parse(".[1:]?").unwrap()
         );
         assert_eq!(
-            Query::Slice(Range::new((9001, -9001)), false, Box::new(Query::Identity)),
+            Query::Index(
+                Index::Slice(Range::new((9001, -9001))),
+                false,
+                Box::new(Query::Identity)
+            ),
             parse(".[9001:-9001]").unwrap()
         );
     }
