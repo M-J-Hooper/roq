@@ -10,3 +10,11 @@ edition = "2018"
 serde_json = "1.0"
 thiserror = "1.0"
 nom = "6.1.2"
+
+[lib]
+name = "roq"
+path = "src/lib.rs"
+
+[[bin]]
+name = "roq"
+path = "src/main.rs"

@@ -1,3 +1,3 @@
-mod parse;
-mod query;
+pub mod parse;
+pub mod query;
 mod range;

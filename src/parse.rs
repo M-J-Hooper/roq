@@ -157,10 +157,7 @@ fn slice(input: &str) -> IResult<&str, Query, ParseError> {
 
 fn num(input: &str) -> IResult<&str, isize, ParseError> {
     let (input, neg) = opt(char('-'))(input)?;
-    let (input, mut i) = map_res(
-        take_while1(is_numeric),
-        std::str::FromStr::from_str,
-    )(input)?;
+    let (input, mut i) = map_res(take_while1(is_numeric), std::str::FromStr::from_str)(input)?;
 
     if neg.is_some() {
         i *= -1;
