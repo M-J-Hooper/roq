@@ -56,7 +56,7 @@ fn empty() -> QueryResult {
 }
 
 fn check(r: QueryResult, opt: bool) -> QueryResult {
-    if r.is_ok() || opt {
+    if r.is_ok() || !opt {
         r
     } else {
         empty()

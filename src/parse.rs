@@ -1,6 +1,7 @@
 use crate::query::{Index, Query};
 use crate::range::Range;
 use nom::combinator::{all_consuming, success};
+use nom::error::{self, ErrorKind};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
@@ -16,19 +17,34 @@ type ParseResult<'a> = Result<Query, ParseError>;
 
 #[derive(Error, Debug)]
 pub enum ParseError {
-    #[error("Leftover characters after parsing: {0}")]
-    LeftoverCharacters(String),
-    #[error("Invalid format: {0}")]
-    InvalidFormat(String),
+    #[error("Leftover characters: {0}")]
+    Incomplete(String),
+    #[error("Invalid format: {0:?} at {1}")]
+    InvalidFormat(ErrorKind, String),
 }
 
-impl<E: std::fmt::Debug> From<nom::Err<E>> for ParseError {
-    fn from(err: nom::Err<E>) -> Self {
-        let s = match err {
-            nom::Err::Incomplete(n) => format!("{:?}", n),
-            nom::Err::Error(e) | nom::Err::Failure(e) => format!("{:?}", e),
-        };
-        ParseError::InvalidFormat(s)
+impl From<nom::Err<ParseError>> for ParseError {
+    fn from(err: nom::Err<ParseError>) -> Self {
+        match err {
+            nom::Err::Incomplete(n) => ParseError::Incomplete(format!("{:?}", n)),
+            nom::Err::Error(e) | nom::Err::Failure(e) => e,
+        }
+    }
+}
+
+impl error::ParseError<&str> for ParseError {
+    fn from_error_kind(input: &str, kind: ErrorKind) -> Self {
+        ParseError::InvalidFormat(kind, input.to_string())
+    }
+
+    fn append(_: &str, _: ErrorKind, other: Self) -> Self {
+        other
+    }
+}
+
+impl error::FromExternalError<&str, std::num::ParseIntError> for ParseError {
+    fn from_external_error(input: &str, kind: ErrorKind, _: std::num::ParseIntError) -> Self {
+        ParseError::InvalidFormat(kind, input.to_string())
     }
 }
 
@@ -44,13 +60,11 @@ fn parse(input: &str) -> ParseResult {
     if input.is_empty() {
         return Ok(Query::Empty);
     }
-
-    let (leftover, query) = all_consuming(pipe)(input.as_bytes())?;
-    assert!(leftover.is_empty());
+    let (_, query) = all_consuming(pipe)(input)?;
     Ok(query)
 }
 
-fn pipe(input: &[u8]) -> IResult<&[u8], Query> {
+fn pipe(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, curr) = split(input)?;
     let (input, opt) = opt(preceded(char('|'), pipe))(input)?;
     if let Some(next) = opt {
@@ -60,7 +74,7 @@ fn pipe(input: &[u8]) -> IResult<&[u8], Query> {
     }
 }
 
-fn split(input: &[u8]) -> IResult<&[u8], Query> {
+fn split(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, qs) = separated_list1(char(','), init_parser)(input)?;
     if qs.len() == 1 {
         Ok((input, qs.into_iter().nth(0).unwrap()))
@@ -69,7 +83,7 @@ fn split(input: &[u8]) -> IResult<&[u8], Query> {
     }
 }
 
-fn init_parser(input: &[u8]) -> IResult<&[u8], Query> {
+fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
         object_index,
         preceded(char('.'), slice),
@@ -79,7 +93,7 @@ fn init_parser(input: &[u8]) -> IResult<&[u8], Query> {
     ))(input)
 }
 
-fn parser(input: &[u8]) -> IResult<&[u8], Query> {
+fn parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
         object_index,
         slice,
@@ -89,30 +103,29 @@ fn parser(input: &[u8]) -> IResult<&[u8], Query> {
     ))(input)
 }
 
-fn iterator(input: &[u8]) -> IResult<&[u8], Query> {
+fn iterator(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, _) = tag("[]")(input)?;
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
     Ok((input, Query::Iterator(opt.is_some(), Box::new(next))))
 }
 
-fn object_index(input: &[u8]) -> IResult<&[u8], Query> {
+fn object_index(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, _) = char('.')(input)?;
-    let (input, bytes) = alt((
-        take_while1(is_alphabetic),
-        delimited(tag("[\""), take_while1(is_alphabetic), tag("\"]")), //FIXME: Escaped string
+    let (input, i) = alt((
+        take_while1(is_alphanumeric),
+        delimited(tag("[\""), take_while1(is_alphanumeric), tag("\"]")), //FIXME: Escaped string
     ))(input)?;
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
 
-    let i = std::str::from_utf8(bytes).unwrap().to_string(); //FIXME: Handle bad utf8
     Ok((
         input,
-        Query::Index(Index::String(i), opt.is_some(), Box::new(next)),
+        Query::Index(Index::String(i.to_string()), opt.is_some(), Box::new(next)),
     ))
 }
 
-fn array_index(input: &[u8]) -> IResult<&[u8], Query> {
+fn array_index(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, i) = delimited(char('['), num, char(']'))(input)?;
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
@@ -123,7 +136,7 @@ fn array_index(input: &[u8]) -> IResult<&[u8], Query> {
     ))
 }
 
-fn slice(input: &[u8]) -> IResult<&[u8], Query> {
+fn slice(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, r) = delimited(
         char('['),
         alt((
@@ -142,10 +155,10 @@ fn slice(input: &[u8]) -> IResult<&[u8], Query> {
     ))
 }
 
-fn num(input: &[u8]) -> IResult<&[u8], isize> {
+fn num(input: &str) -> IResult<&str, isize, ParseError> {
     let (input, neg) = opt(char('-'))(input)?;
     let (input, mut i) = map_res(
-        map_res(take_while1(is_digit), std::str::from_utf8),
+        take_while1(is_numeric),
         std::str::FromStr::from_str,
     )(input)?;
 
@@ -153,6 +166,14 @@ fn num(input: &[u8]) -> IResult<&[u8], isize> {
         i *= -1;
     }
     Ok((input, i))
+}
+
+fn is_alphanumeric(chr: char) -> bool {
+    is_alphabetic(chr as u8) || is_digit(chr as u8)
+}
+
+fn is_numeric(chr: char) -> bool {
+    is_digit(chr as u8)
 }
 
 #[cfg(test)]
