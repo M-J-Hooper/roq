@@ -19,6 +19,7 @@ pub enum Query {
     Index(Index, bool, Box<Query>),
     Iterator(bool, Box<Query>),
     Spliterator(Vec<Query>),
+    Pipe(Box<Query>, Box<Query>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -39,6 +40,7 @@ impl Query {
             Query::Index(i, opt, next) => check(index(value, i, next), *opt),
             Query::Iterator(opt, next) => check(iterate(value, next), *opt),
             Query::Spliterator(queries) => split(value, queries),
+            Query::Pipe(curr, next) => pipe(value, curr, next),
         }
     }
 }
@@ -79,6 +81,10 @@ fn index(v: &Value, i: &Index, next: &Query) -> QueryResult {
         (v, Index::Integer(_)) => Err(QueryError::Index(type_str(v), "number")),
         (v, Index::Slice(_)) => Err(QueryError::Index(type_str(v), "slice")),
     }
+}
+
+fn pipe(v: &Value, curr: &Query, next: &Query) -> QueryResult {
+    iterate_values(curr.execute(v)?.iter(), next)
 }
 
 fn split<'a, I: IntoIterator<Item = &'a Query>>(v: &Value, iter: I) -> QueryResult {
@@ -259,5 +265,16 @@ mod test {
 
         //TODO: Splitting inside indexes still not supported
         //let q: Query = ".[4,2]".parse::<Query>().unwrap();
+    }
+
+    #[test]
+    fn pipe() {
+        let q = ".[]|.name".parse::<Query>().unwrap();
+        let v: Value =
+            serde_json::from_str(r#"[{"name":"JSON", "good":true}, {"name":"XML", "good":false}]"#)
+                .unwrap();
+        let r = q.execute(&v).unwrap();
+        assert_eq!(r#""JSON""#, r[0].to_string());
+        assert_eq!(r#""XML""#, r[1].to_string());
     }
 }

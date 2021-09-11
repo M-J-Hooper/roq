@@ -45,9 +45,19 @@ fn parse(input: &str) -> ParseResult {
         return Ok(Query::Empty);
     }
 
-    let (leftover, query) = all_consuming(split)(input.as_bytes())?;
+    let (leftover, query) = all_consuming(pipe)(input.as_bytes())?;
     assert!(leftover.is_empty());
     Ok(query)
+}
+
+fn pipe(input: &[u8]) -> IResult<&[u8], Query> {
+    let (input, curr) = split(input)?;
+    let (input, opt) = opt(preceded(char('|'), pipe))(input)?;
+    if let Some(next) = opt {
+        Ok((input, Query::Pipe(Box::new(curr), Box::new(next))))
+    } else {
+        Ok((input, curr))
+    }
 }
 
 fn split(input: &[u8]) -> IResult<&[u8], Query> {
@@ -350,6 +360,40 @@ mod test {
                 ),
             ]),
             parse(".foo,.bar").unwrap()
+        );
+    }
+
+    #[test]
+    fn pipe() {
+        assert!(parse("|.").is_err());
+        assert!(parse(".||.").is_err());
+        assert!(parse("|").is_err());
+        assert!(parse("| .").is_err()); // TODO: Handle whitespace
+
+        assert_eq!(
+            Query::Pipe(
+                Box::new(Query::Identity),
+                Box::new(Query::Pipe(
+                    Box::new(Query::Identity),
+                    Box::new(Query::Identity)
+                ))
+            ),
+            parse(".|.|.").unwrap()
+        );
+        assert_eq!(
+            Query::Pipe(
+                Box::new(Query::Index(
+                    Index::String("foo".to_string()),
+                    false,
+                    Box::new(Query::Identity)
+                )),
+                Box::new(Query::Index(
+                    Index::String("bar".to_string()),
+                    false,
+                    Box::new(Query::Identity)
+                ))
+            ),
+            parse(".foo|.bar").unwrap()
         );
     }
 }
