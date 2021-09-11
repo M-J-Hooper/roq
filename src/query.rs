@@ -18,7 +18,7 @@ pub enum Query {
     Identity,
     Index(Index, bool, Box<Query>),
     Iterator(bool, Box<Query>),
-    Spliterator(bool, Vec<Query>),
+    Spliterator(Vec<Query>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -38,7 +38,7 @@ impl Query {
             Query::Identity => single(value.clone()),
             Query::Index(i, opt, next) => check(index(value, i, next), *opt),
             Query::Iterator(opt, next) => check(iterate(value, next), *opt),
-            Query::Spliterator(opt, queries) => check(split(value, queries), *opt),
+            Query::Spliterator(queries) => split(value, queries),
         }
     }
 }
@@ -54,7 +54,7 @@ fn empty() -> QueryResult {
 }
 
 fn check(r: QueryResult, opt: bool) -> QueryResult {
-    if r.is_ok() || !opt {
+    if r.is_ok() || opt {
         r
     } else {
         empty()
@@ -238,5 +238,26 @@ mod test {
 
         let q: Query = ".[-2:]".parse::<Query>().unwrap();
         assert_eq!(r#"["d","e"]"#, q.execute(&v).unwrap()[0].to_string());
+    }
+
+    #[test]
+    fn split() {
+        let q = ".foo,.bar".parse::<Query>().unwrap();
+        let v: Value =
+            serde_json::from_str(r#"{"foo": 42, "bar": "something else", "baz": true}"#).unwrap();
+        let r = q.execute(&v).unwrap();
+        assert_eq!(r#"42"#, r[0].to_string());
+        assert_eq!(r#""something else""#, r[1].to_string());
+
+        let q = ".user,.projects[]".parse::<Query>().unwrap();
+        let v =
+            serde_json::from_str(r#"{"user":"stedolan", "projects": ["jq", "wikiflow"]}"#).unwrap();
+        let r = q.execute(&v).unwrap();
+        assert_eq!(r#""stedolan""#, r[0].to_string());
+        assert_eq!(r#""jq""#, r[1].to_string());
+        assert_eq!(r#""wikiflow""#, r[2].to_string());
+
+        //TODO: Splitting inside indexes still not supported
+        //let q: Query = ".[4,2]".parse::<Query>().unwrap();
     }
 }

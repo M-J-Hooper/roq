@@ -1,10 +1,12 @@
 use crate::query::{Index, Query};
 use crate::range::Range;
+use nom::combinator::{all_consuming, success};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
     character::{complete::char, is_alphabetic, is_digit},
-    combinator::{eof, map, map_res, opt, value},
+    combinator::{map, map_res, opt, value},
+    multi::separated_list1,
     sequence::{delimited, preceded, separated_pair, terminated},
     IResult,
 };
@@ -43,12 +45,18 @@ fn parse(input: &str) -> ParseResult {
         return Ok(Query::Empty);
     }
 
-    let (leftover, query) = init_parser(input.as_bytes())?;
-    if !leftover.is_empty() {
-        let s = std::str::from_utf8(leftover).unwrap();
-        return Err(ParseError::LeftoverCharacters(s.to_string()));
-    }
+    let (leftover, query) = all_consuming(split)(input.as_bytes())?;
+    assert!(leftover.is_empty());
     Ok(query)
+}
+
+fn split(input: &[u8]) -> IResult<&[u8], Query> {
+    let (input, qs) = separated_list1(char(','), init_parser)(input)?;
+    if qs.len() == 1 {
+        Ok((input, qs.into_iter().nth(0).unwrap()))
+    } else {
+        Ok((input, Query::Spliterator(qs)))
+    }
 }
 
 fn init_parser(input: &[u8]) -> IResult<&[u8], Query> {
@@ -57,7 +65,7 @@ fn init_parser(input: &[u8]) -> IResult<&[u8], Query> {
         preceded(char('.'), slice),
         preceded(char('.'), array_index),
         preceded(char('.'), iterator),
-        value(Query::Identity, preceded(char('.'), eof)),
+        value(Query::Identity, char('.')),
     ))(input)
 }
 
@@ -67,7 +75,7 @@ fn parser(input: &[u8]) -> IResult<&[u8], Query> {
         slice,
         array_index,
         iterator,
-        value(Query::Identity, eof),
+        success(Query::Identity),
     ))(input)
 }
 
@@ -314,6 +322,34 @@ mod test {
                 Box::new(Query::Identity)
             ),
             parse(".[9001:-9001]").unwrap()
+        );
+    }
+
+    #[test]
+    fn split() {
+        assert!(parse(",.").is_err());
+        assert!(parse(".,,.").is_err());
+        assert!(parse(",,").is_err());
+        assert!(parse("., .").is_err()); // TODO: Handle whitespace
+
+        assert_eq!(
+            Query::Spliterator(vec![Query::Identity, Query::Identity, Query::Identity]),
+            parse(".,.,.").unwrap()
+        );
+        assert_eq!(
+            Query::Spliterator(vec![
+                Query::Index(
+                    Index::String("foo".to_string()),
+                    false,
+                    Box::new(Query::Identity)
+                ),
+                Query::Index(
+                    Index::String("bar".to_string()),
+                    false,
+                    Box::new(Query::Identity)
+                ),
+            ]),
+            parse(".foo,.bar").unwrap()
         );
     }
 }
