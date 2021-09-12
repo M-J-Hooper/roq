@@ -1,8 +1,8 @@
-use crate::range::Range;
+use crate::{construction::Construct, range::Range};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-type QueryResult = Result<Vec<Value>, QueryError>;
+pub type QueryResult = Result<Vec<Value>, QueryError>;
 
 #[derive(Error, Debug)]
 pub enum QueryError {
@@ -20,6 +20,7 @@ pub enum Query {
     Iterator(bool, Box<Query>),
     Spliterator(Box<Query>, Box<Query>),
     Pipe(Box<Query>, Box<Query>),
+    Contruct(Construct),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -41,6 +42,7 @@ impl Query {
             Query::Iterator(opt, next) => check(iterate(value, next), *opt),
             Query::Spliterator(curr, next) => split(value, curr, next),
             Query::Pipe(curr, next) => pipe(value, curr, next),
+            Query::Contruct(c) => c.execute(value),
         }
     }
 }
@@ -189,9 +191,9 @@ mod test {
         let v: Value = serde_json::from_str(r#"{"foo": 42}"#).unwrap();
         assert_eq!(r#"42"#, q.execute(&v).unwrap()[0].to_string());
 
-        assert!("[.foo?]".parse::<Query>().is_err()); // TODO: Implement array construction
-                                                      //let v: Value = serde_json::from_str(r#"[1,2]"#).unwrap();
-                                                      //assert_eq!(r#"[]"#, q.execute(&v).unwrap()[0].to_string());
+        let q: Query = "[.foo?]".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"[1,2]"#).unwrap();
+        assert_eq!(r#"[]"#, q.execute(&v).unwrap()[0].to_string());
     }
 
     #[test]
@@ -276,5 +278,19 @@ mod test {
         let r = q.execute(&v).unwrap();
         assert_eq!(r#""JSON""#, r[0].to_string());
         assert_eq!(r#""XML""#, r[1].to_string());
+    }
+
+    #[test]
+    fn array_construction() {
+        let q = "[.user,.projects[]]".parse::<Query>().unwrap();
+        let v: Value =
+            serde_json::from_str(r#"{"user":"stedolan", "projects": ["jq", "wikiflow"]}"#).unwrap();
+        assert_eq!(
+            r#"["stedolan","jq","wikiflow"]"#,
+            q.execute(&v).unwrap()[0].to_string()
+        );
+
+        //TODO: Numerical operations still not supported
+        //let q: Query = "[.[]|.*2]".parse().unwrap();
     }
 }

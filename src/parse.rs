@@ -1,3 +1,4 @@
+use crate::construction::Construct;
 use crate::query::{Index, Query};
 use crate::range::Range;
 use nom::bytes::complete::take_while1;
@@ -81,40 +82,40 @@ fn split(input: &str) -> IResult<&str, Query, ParseError> {
 fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
         bare_object_index,
+        construct,
         preceded(char('.'), alt((index, iterator))),
         value(Query::Identity, char('.')),
     ))(input)
 }
 
+fn construct(input: &str) -> IResult<&str, Query, ParseError> {
+    let (input, inner) = delimited(char('['), pipe, char(']'))(input)?;
+    Ok((input, Query::Contruct(Construct::Array(Box::new(inner)))))
+}
+
 fn parser(input: &str) -> IResult<&str, Query, ParseError> {
-    alt((
-        bare_object_index,
-        index,
-        iterator,
-        success(Query::Identity),
-    ))(input)
+    alt((bare_object_index, index, iterator, success(Query::Identity)))(input)
 }
 
 fn index(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, i) = delimited(
         char('['),
         alt((
-            map(alt((
-                map(separated_pair(i32, char(':'), i32), Range::new),
-                map(preceded(char(':'), i32), Range::upper),
-                map(terminated(i32, char(':')), Range::lower)
-            )), Index::Slice),
+            map(
+                alt((
+                    map(separated_pair(i32, char(':'), i32), Range::new),
+                    map(preceded(char(':'), i32), Range::upper),
+                    map(terminated(i32, char(':')), Range::lower),
+                )),
+                Index::Slice,
+            ),
             map(i32, Index::Integer),
             map(
-                delimited(
-                    char('"'), 
-                    take_while1(|c| c != '"'), 
-                    char('"')
-                ), 
-                |s: &str| Index::String(s.to_string())
-            )
+                delimited(char('"'), take_while1(|c| c != '"'), char('"')),
+                |s: &str| Index::String(s.to_string()),
+            ),
         )),
-        char(']')
+        char(']'),
     )(input)?;
 
     let (input, opt) = opt(char('?'))(input)?;
@@ -385,6 +386,34 @@ mod test {
                 ))
             ),
             parse(".foo|.bar").unwrap()
+        );
+    }
+
+    #[test]
+    fn array_construction() {
+        assert!(parse("[").is_err());
+        assert!(parse("]").is_err());
+        assert!(parse("].[").is_err());
+        assert!(parse("[]").is_err());
+
+        assert_eq!(
+            Query::Contruct(Construct::Array(Box::new(Query::Identity)),),
+            parse("[.]").unwrap()
+        );
+        assert_eq!(
+            Query::Contruct(Construct::Array(Box::new(Query::Spliterator(
+                Box::new(Query::Index(
+                    Index::String("foo".to_string()),
+                    false,
+                    Box::new(Query::Identity)
+                )),
+                Box::new(Query::Index(
+                    Index::String("bar".to_string()),
+                    false,
+                    Box::new(Query::Identity)
+                ))
+            )))),
+            parse("[.foo,.bar]").unwrap()
         );
     }
 }
