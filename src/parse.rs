@@ -4,10 +4,13 @@ use nom::combinator::{all_consuming, success};
 use nom::error::{self, ErrorKind};
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1},
-    character::{complete::char, is_alphabetic, is_digit},
-    combinator::{map, map_res, opt, value},
-    multi::separated_list1,
+    bytes::complete::{tag},
+    character::complete::{
+        i32,
+        char,
+        alphanumeric1,
+    },
+    combinator::{map, opt, value},
     sequence::{delimited, preceded, separated_pair, terminated},
     IResult,
 };
@@ -114,8 +117,8 @@ fn iterator(input: &str) -> IResult<&str, Query, ParseError> {
 fn object_index(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, _) = char('.')(input)?;
     let (input, i) = alt((
-        take_while1(is_alphanumeric),
-        delimited(tag("[\""), take_while1(is_alphanumeric), tag("\"]")), //FIXME: Escaped string
+        alphanumeric1,
+        delimited(tag("[\""), alphanumeric1, tag("\"]")), //FIXME: Escaped string
     ))(input)?;
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
@@ -127,7 +130,7 @@ fn object_index(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 fn array_index(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, i) = delimited(char('['), num, char(']'))(input)?;
+    let (input, i) = delimited(char('['), i32, char(']'))(input)?;
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
 
@@ -141,9 +144,9 @@ fn slice(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, r) = delimited(
         char('['),
         alt((
-            map(separated_pair(num, char(':'), num), Range::new),
-            map(preceded(char(':'), num), Range::upper),
-            map(terminated(num, char(':')), Range::lower),
+            map(separated_pair(i32, char(':'), i32), Range::new),
+            map(preceded(char(':'), i32), Range::upper),
+            map(terminated(i32, char(':')), Range::lower),
         )),
         char(']'),
     )(input)?;
@@ -154,24 +157,6 @@ fn slice(input: &str) -> IResult<&str, Query, ParseError> {
         input,
         Query::Index(Index::Slice(r), opt.is_some(), Box::new(next)),
     ))
-}
-
-fn num(input: &str) -> IResult<&str, isize, ParseError> {
-    let (input, neg) = opt(char('-'))(input)?;
-    let (input, mut i) = map_res(take_while1(is_numeric), std::str::FromStr::from_str)(input)?;
-
-    if neg.is_some() {
-        i *= -1;
-    }
-    Ok((input, i))
-}
-
-fn is_alphanumeric(chr: char) -> bool {
-    is_alphabetic(chr as u8) || is_digit(chr as u8)
-}
-
-fn is_numeric(chr: char) -> bool {
-    is_digit(chr as u8)
 }
 
 #[cfg(test)]

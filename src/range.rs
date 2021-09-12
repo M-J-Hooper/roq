@@ -1,21 +1,21 @@
 #[derive(Debug, PartialEq, Clone)]
-pub struct Range(Option<isize>, Option<isize>);
+pub struct Range(Option<i32>, Option<i32>);
 
 impl Range {
-    pub fn new(bounds: (isize, isize)) -> Self {
+    pub fn new(bounds: (i32, i32)) -> Self {
         Range(Some(bounds.0), Some(bounds.1))
     }
 
-    pub fn lower(i: isize) -> Self {
+    pub fn lower(i: i32) -> Self {
         Range(Some(i), None)
     }
 
-    pub fn upper(i: isize) -> Self {
+    pub fn upper(i: i32) -> Self {
         Range(None, Some(i))
     }
 
     pub fn normalize(&self, len: usize) -> std::ops::Range<usize> {
-        let normalize_bound = |bound: isize| {
+        let normalize_bound = |bound: i32| {
             if bound < 0 {
                 let u = -bound as usize;
                 if u > len {

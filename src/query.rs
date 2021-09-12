@@ -25,7 +25,7 @@ pub enum Query {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Index {
     String(String),
-    Integer(isize),
+    Integer(i32),
     Slice(Range),
 }
 
@@ -120,7 +120,7 @@ fn object_index(map: &Map<String, Value>, s: &str, next: &Query) -> QueryResult 
     }
 }
 
-fn array_index(arr: &Vec<Value>, i: isize, next: &Query) -> QueryResult {
+fn array_index(arr: &Vec<Value>, i: i32, next: &Query) -> QueryResult {
     let index = if i < 0 {
         let j = -i as usize;
         if j >= arr.len() {
