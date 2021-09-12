@@ -1,15 +1,12 @@
 use crate::query::{Index, Query};
 use crate::range::Range;
-use nom::combinator::{all_consuming, success};
+use nom::bytes::complete::take_while1;
+use nom::combinator::{all_consuming, not, success};
 use nom::error::{self, ErrorKind};
 use nom::{
     branch::alt,
-    bytes::complete::{tag},
-    character::complete::{
-        i32,
-        char,
-        alphanumeric1,
-    },
+    bytes::complete::tag,
+    character::complete::{alphanumeric1, char, i32},
     combinator::{map, opt, value},
     sequence::{delimited, preceded, separated_pair, terminated},
     IResult,
@@ -89,16 +86,15 @@ fn split(input: &str) -> IResult<&str, Query, ParseError> {
 
 fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
-        object_index,
-        preceded(char('.'), slice),
-        preceded(char('.'), array_index),
-        preceded(char('.'), iterator),
+        bare_object_index,
+        preceded(char('.'), alt((slice, object_index, array_index, iterator))),
         value(Query::Identity, char('.')),
     ))(input)
 }
 
 fn parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
+        bare_object_index,
         object_index,
         slice,
         array_index,
@@ -114,12 +110,19 @@ fn iterator(input: &str) -> IResult<&str, Query, ParseError> {
     Ok((input, Query::Iterator(opt.is_some(), Box::new(next))))
 }
 
+fn bare_object_index(input: &str) -> IResult<&str, Query, ParseError> {
+    let (input, i) = preceded(char('.'), alphanumeric1)(input)?;
+    let (input, opt) = opt(char('?'))(input)?;
+    let (input, next) = parser(input)?;
+
+    Ok((
+        input,
+        Query::Index(Index::String(i.to_string()), opt.is_some(), Box::new(next)),
+    ))
+}
+
 fn object_index(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, _) = char('.')(input)?;
-    let (input, i) = alt((
-        alphanumeric1,
-        delimited(tag("[\""), alphanumeric1, tag("\"]")), //FIXME: Escaped string
-    ))(input)?;
+    let (input, i) = delimited(tag("[\""), take_while1(|c| c != '"'), tag("\"]"))(input)?; //FIXME: Escaped string
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
 
