@@ -17,7 +17,7 @@ type ParseResult<'a> = Result<Query, ParseError>;
 
 #[derive(Error, Debug)]
 pub enum ParseError {
-    #[error("Leftover characters: {0}")]
+    #[error("Incomplete: {0}")]
     Incomplete(String),
     #[error("Invalid format: {0:?} at {1}")]
     InvalidFormat(ErrorKind, String),
@@ -39,12 +39,6 @@ impl error::ParseError<&str> for ParseError {
 
     fn append(_: &str, _: ErrorKind, other: Self) -> Self {
         other
-    }
-}
-
-impl error::FromExternalError<&str, std::num::ParseIntError> for ParseError {
-    fn from_external_error(input: &str, kind: ErrorKind, _: std::num::ParseIntError) -> Self {
-        ParseError::InvalidFormat(kind, input.to_string())
     }
 }
 
@@ -87,7 +81,7 @@ fn split(input: &str) -> IResult<&str, Query, ParseError> {
 fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
         bare_object_index,
-        preceded(char('.'), alt((slice, object_index, array_index, iterator))),
+        preceded(char('.'), alt((index, iterator))),
         value(Query::Identity, char('.')),
     ))(input)
 }
@@ -95,12 +89,37 @@ fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
 fn parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
         bare_object_index,
-        object_index,
-        slice,
-        array_index,
+        index,
         iterator,
         success(Query::Identity),
     ))(input)
+}
+
+fn index(input: &str) -> IResult<&str, Query, ParseError> {
+    let (input, i) = delimited(
+        char('['),
+        alt((
+            map(alt((
+                map(separated_pair(i32, char(':'), i32), Range::new),
+                map(preceded(char(':'), i32), Range::upper),
+                map(terminated(i32, char(':')), Range::lower)
+            )), Index::Slice),
+            map(i32, Index::Integer),
+            map(
+                delimited(
+                    char('"'), 
+                    take_while1(|c| c != '"'), 
+                    char('"')
+                ), 
+                |s: &str| Index::String(s.to_string())
+            )
+        )),
+        char(']')
+    )(input)?;
+
+    let (input, opt) = opt(char('?'))(input)?;
+    let (input, next) = parser(input)?;
+    Ok((input, Query::Index(i, opt.is_some(), Box::new(next))))
 }
 
 fn iterator(input: &str) -> IResult<&str, Query, ParseError> {
@@ -118,47 +137,6 @@ fn bare_object_index(input: &str) -> IResult<&str, Query, ParseError> {
     Ok((
         input,
         Query::Index(Index::String(i.to_string()), opt.is_some(), Box::new(next)),
-    ))
-}
-
-fn object_index(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, i) = delimited(tag("[\""), take_while1(|c| c != '"'), tag("\"]"))(input)?; //FIXME: Escaped string
-    let (input, opt) = opt(char('?'))(input)?;
-    let (input, next) = parser(input)?;
-
-    Ok((
-        input,
-        Query::Index(Index::String(i.to_string()), opt.is_some(), Box::new(next)),
-    ))
-}
-
-fn array_index(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, i) = delimited(char('['), i32, char(']'))(input)?;
-    let (input, opt) = opt(char('?'))(input)?;
-    let (input, next) = parser(input)?;
-
-    Ok((
-        input,
-        Query::Index(Index::Integer(i), opt.is_some(), Box::new(next)),
-    ))
-}
-
-fn slice(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, r) = delimited(
-        char('['),
-        alt((
-            map(separated_pair(i32, char(':'), i32), Range::new),
-            map(preceded(char(':'), i32), Range::upper),
-            map(terminated(i32, char(':')), Range::lower),
-        )),
-        char(']'),
-    )(input)?;
-    let (input, opt) = opt(char('?'))(input)?;
-    let (input, next) = parser(input)?;
-
-    Ok((
-        input,
-        Query::Index(Index::Slice(r), opt.is_some(), Box::new(next)),
     ))
 }
 
