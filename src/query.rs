@@ -18,7 +18,7 @@ pub enum Query {
     Identity,
     Index(Index, bool, Box<Query>),
     Iterator(bool, Box<Query>),
-    Spliterator(Vec<Query>),
+    Spliterator(Box<Query>, Box<Query>),
     Pipe(Box<Query>, Box<Query>),
 }
 
@@ -39,7 +39,7 @@ impl Query {
             Query::Identity => single(value.clone()),
             Query::Index(i, opt, next) => check(index(value, i, next), *opt),
             Query::Iterator(opt, next) => check(iterate(value, next), *opt),
-            Query::Spliterator(queries) => split(value, queries),
+            Query::Spliterator(curr, next) => split(value, curr, next),
             Query::Pipe(curr, next) => pipe(value, curr, next),
         }
     }
@@ -87,8 +87,8 @@ fn pipe(v: &Value, curr: &Query, next: &Query) -> QueryResult {
     iterate_values(curr.execute(v)?.iter(), next)
 }
 
-fn split<'a, I: IntoIterator<Item = &'a Query>>(v: &Value, iter: I) -> QueryResult {
-    iterate_results(iter.into_iter().map(|q| q.execute(&v.clone())))
+fn split(v: &Value, curr: &Query, next: &Query) -> QueryResult {
+    iterate_results(vec![curr.execute(v), next.execute(v)])
 }
 
 fn iterate(v: &Value, next: &Query) -> QueryResult {

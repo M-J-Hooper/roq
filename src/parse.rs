@@ -75,11 +75,12 @@ fn pipe(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 fn split(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, qs) = separated_list1(char(','), init_parser)(input)?;
-    if qs.len() == 1 {
-        Ok((input, qs.into_iter().nth(0).unwrap()))
+    let (input, curr) = init_parser(input)?;
+    let (input, opt) = opt(preceded(char(','), split))(input)?;
+    if let Some(next) = opt {
+        Ok((input, Query::Spliterator(Box::new(curr), Box::new(next))))
     } else {
-        Ok((input, Query::Spliterator(qs)))
+        Ok((input, curr))
     }
 }
 
@@ -361,22 +362,28 @@ mod test {
         assert!(parse("., .").is_err()); // TODO: Handle whitespace
 
         assert_eq!(
-            Query::Spliterator(vec![Query::Identity, Query::Identity, Query::Identity]),
+            Query::Spliterator(
+                Box::new(Query::Identity),
+                Box::new(Query::Spliterator(
+                    Box::new(Query::Identity),
+                    Box::new(Query::Identity)
+                ))
+            ),
             parse(".,.,.").unwrap()
         );
         assert_eq!(
-            Query::Spliterator(vec![
-                Query::Index(
+            Query::Spliterator(
+                Box::new(Query::Index(
                     Index::String("foo".to_string()),
                     false,
                     Box::new(Query::Identity)
-                ),
-                Query::Index(
+                )),
+                Box::new(Query::Index(
                     Index::String("bar".to_string()),
                     false,
                     Box::new(Query::Identity)
-                ),
-            ]),
+                ))
+            ),
             parse(".foo,.bar").unwrap()
         );
     }
