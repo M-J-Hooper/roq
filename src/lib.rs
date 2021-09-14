@@ -207,4 +207,11 @@ mod test {
             q.execute(&v).unwrap()[0].to_string()
         );
     }
+
+    #[test]
+    fn recursive_descent() {
+        let q: Query = "..|.a?".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"[[{"a":1}]]"#).unwrap();
+        assert_eq!(r#"1"#, q.execute(&v).unwrap()[0].to_string());
+    }
 }

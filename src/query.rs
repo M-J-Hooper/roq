@@ -9,6 +9,7 @@ pub enum Query {
     Identity,
     Index(Index),
     Iterator,
+    Recurse,
     Split(Box<Query>, Box<Query>),
     Chain(Box<Query>, Box<Query>),
     Contruct(Construct),
@@ -25,6 +26,7 @@ impl Query {
             Query::Identity => single(value.clone()),
             Query::Index(i) => i.execute(value),
             Query::Iterator => iterate(value),
+            Query::Recurse => recurse(value),
             Query::Split(curr, next) => split(value, curr, next),
             Query::Chain(curr, next) => chain(value, curr, next),
             Query::Contruct(c) => c.execute(value),
@@ -57,11 +59,23 @@ fn iterate(v: &Value) -> QueryResult {
     }
 }
 
+fn recurse(v: &Value) -> QueryResult {
+    let children: Vec<_> = match v {
+        Value::Array(arr) => arr.iter().collect(),
+        Value::Object(map) => map.values().into_iter().collect(),
+        vv => return single(vv.clone()),
+    };
+
+    let mut res = vec![v.clone()];
+    res.extend(iterate_results(children.iter().map(|vv| recurse(vv)))?);
+    Ok(res)
+}
+
 fn iterate_values<'a, I: IntoIterator<Item = &'a Value>>(iter: I, next: &Query) -> QueryResult {
     iterate_results(iter.into_iter().map(|vv| next.execute(vv)))
 }
 
-fn iterate_results<'a, I: IntoIterator<Item = QueryResult>>(iter: I) -> QueryResult {
+pub(crate) fn iterate_results<'a, I: IntoIterator<Item = QueryResult>>(iter: I) -> QueryResult {
     Ok(iter
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?

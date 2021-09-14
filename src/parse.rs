@@ -78,12 +78,15 @@ fn parse_split(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 pub(crate) fn parse_init(input: &str) -> IResult<&str, Query, ParseError> {
-    chain(alt((
-        parse_index_shorthand,
-        map(construction::parse, Query::Contruct),
-        preceded(char('.'), alt((parse_index, parse_iterator))),
-        value(Query::Identity, char('.')),
-    )))(input)
+    alt((
+        chain(alt((
+            parse_index_shorthand,
+            map(construction::parse, Query::Contruct),
+            preceded(char('.'), alt((parse_index, parse_iterator))),
+        ))),
+        value(Query::Recurse, tag("..")),
+        value(Query::Identity, char('.'))
+    ))(input)
 }
 
 fn parse_chain(input: &str) -> IResult<&str, Query, ParseError> {
@@ -146,6 +149,7 @@ mod test {
     #[test]
     fn simple() {
         assert!(parse("...").is_err());
+        assert_eq!(Query::Recurse, parse("..").unwrap());
         assert_eq!(Query::Identity, parse(".").unwrap());
         assert_eq!(Query::Empty, parse("").unwrap());
     }
@@ -177,6 +181,7 @@ mod test {
     #[test]
     fn object_index() {
         assert!(parse("foo").is_err());
+        assert!(parse("..foo").is_err());
         assert!(parse(".f$$").is_err());
         assert!(parse(".[f$$]").is_err());
         assert!(parse(".[foo]").is_err());
@@ -215,6 +220,7 @@ mod test {
     fn array_index() {
         assert!(parse("[0]").is_err());
         assert!(parse(".[a]").is_err());
+        assert!(parse("..[0]").is_err());
         assert!(parse(".[0].[0]").is_err());
 
         assert_eq!(Query::Index(Index::Integer(0)), parse(".[0]").unwrap());
@@ -246,7 +252,8 @@ mod test {
         assert!(parse(".[:2:]").is_err());
         assert!(parse(".[--2]").is_err());
         assert!(parse(".[-2:4:]").is_err());
-        assert!(parse(".[:-2:4]").is_err());
+        assert!(parse(".[a]").is_err());
+        assert!(parse("..[1:2]").is_err());
 
         assert_eq!(
             Query::Index(Index::Slice(Range::new((-1, 2)))),

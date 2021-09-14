@@ -33,15 +33,15 @@ impl Index {
                 let range = r.normalize(vec.len());
                 single(Value::Array(vec[range].to_vec()))
             }
-            (Value::Object(map), Index::String(s)) => Self::execute_object_index(map, s),
-            (Value::Array(arr), Index::Integer(i)) => Self::execute_array_index(arr, *i),
+            (Value::Object(map), Index::String(s)) => Self::index_object(map, s),
+            (Value::Array(arr), Index::Integer(i)) => Self::index_array(arr, *i),
             (v, Index::String(_)) => Err(QueryError::Index(type_str(v), "string")),
             (v, Index::Integer(_)) => Err(QueryError::Index(type_str(v), "number")),
             (v, Index::Slice(_)) => Err(QueryError::Index(type_str(v), "slice")),
         }
     }
 
-    fn execute_object_index(map: &Map<String, Value>, s: &str) -> QueryResult {
+    fn index_object(map: &Map<String, Value>, s: &str) -> QueryResult {
         if let Some(vv) = map.get(s) {
             single(vv.clone())
         } else {
@@ -49,7 +49,7 @@ impl Index {
         }
     }
 
-    fn execute_array_index(arr: &Vec<Value>, i: i32) -> QueryResult {
+    fn index_array(arr: &Vec<Value>, i: i32) -> QueryResult {
         let index = if i < 0 {
             let j = -i as usize;
             if j >= arr.len() {
