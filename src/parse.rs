@@ -1,9 +1,10 @@
-use crate::construction::Construct;
+use crate::construction::{Construct, Key};
 use crate::query::{Index, Query};
 use crate::range::Range;
 use nom::bytes::complete::take_while1;
-use nom::combinator::{all_consuming, not, success};
+use nom::combinator::{all_consuming, success};
 use nom::error::{self, ErrorKind};
+use nom::multi::separated_list0;
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -82,15 +83,38 @@ fn split(input: &str) -> IResult<&str, Query, ParseError> {
 fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
         bare_object_index,
-        construct,
+        construct_array,
+        construct_object,
         preceded(char('.'), alt((index, iterator))),
         value(Query::Identity, char('.')),
     ))(input)
 }
 
-fn construct(input: &str) -> IResult<&str, Query, ParseError> {
+fn construct_array(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, inner) = delimited(char('['), pipe, char(']'))(input)?;
     Ok((input, Query::Contruct(Construct::Array(Box::new(inner)))))
+}
+
+fn construct_object(input: &str) -> IResult<&str, Query, ParseError> {
+    let (input, kvs) = delimited(
+        char('{'),
+        separated_list0(
+            char(','),
+            alt((
+                separated_pair(
+                    alt((
+                        map(delimited(char('('), init_parser, char(')')), Key::Query),
+                        map(alphanumeric1, |s: &str| Key::Simple(s.to_string())),
+                    )),
+                    char(':'),
+                    init_parser,
+                ),
+                map(alphanumeric1, |s: &str| Construct::shorthand(s.to_string())),
+            )),
+        ),
+        char('}'),
+    )(input)?;
+    Ok((input, Query::Contruct(Construct::Object(kvs))))
 }
 
 fn parser(input: &str) -> IResult<&str, Query, ParseError> {
@@ -394,7 +418,7 @@ mod test {
         assert!(parse("[").is_err());
         assert!(parse("]").is_err());
         assert!(parse("].[").is_err());
-        assert!(parse("[]").is_err());
+        assert!(parse("[]").is_err()); // TODO: Probably should be allowed
 
         assert_eq!(
             Query::Contruct(Construct::Array(Box::new(Query::Identity)),),
@@ -414,6 +438,44 @@ mod test {
                 ))
             )))),
             parse("[.foo,.bar]").unwrap()
+        );
+    }
+
+    #[test]
+    fn object_construction() {
+        assert!(parse("{").is_err());
+        assert!(parse("}").is_err());
+        assert!(parse("}{").is_err());
+        assert!(parse("{:}").is_err());
+        assert!(parse("{foo:}").is_err());
+        assert!(parse("{:.}").is_err());
+        assert!(parse("{.:.}").is_err());
+
+        assert_eq!(
+            Query::Contruct(Construct::Object(vec![])),
+            parse("{}").unwrap()
+        );
+        assert_eq!(
+            Query::Contruct(Construct::Object(vec![
+                Construct::shorthand("foo".to_string()),
+                (
+                    Key::Simple("bar".to_string()),
+                    Query::Index(
+                        Index::String("bar".to_string()),
+                        false,
+                        Box::new(Query::Identity)
+                    )
+                ),
+                (
+                    Key::Query(Query::Index(
+                        Index::String("baz".to_string()),
+                        false,
+                        Box::new(Query::Identity)
+                    )),
+                    Query::Iterator(false, Box::new(Query::Identity))
+                )
+            ])),
+            parse("{foo,bar:.bar,(.baz):.[]}").unwrap()
         );
     }
 }

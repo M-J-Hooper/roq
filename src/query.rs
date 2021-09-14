@@ -10,6 +10,8 @@ pub enum QueryError {
     Index(&'static str, &'static str),
     #[error("Cannot iterate over {0}")]
     Iterate(&'static str),
+    #[error("Cannot use {0} as object key")]
+    ObjectKey(&'static str),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -140,7 +142,7 @@ fn array_index(arr: &Vec<Value>, i: i32, next: &Query) -> QueryResult {
     }
 }
 
-fn type_str(v: &Value) -> &'static str {
+pub fn type_str(v: &Value) -> &'static str {
     match v {
         Value::Null => "null",
         Value::Bool(_) => "bool",
@@ -292,5 +294,26 @@ mod test {
 
         //TODO: Numerical operations still not supported
         //let q: Query = "[.[]|.*2]".parse().unwrap();
+    }
+
+    #[test]
+    fn object_construction() {
+        let v: Value =
+            serde_json::from_str(r#"{"user":"stedolan","titles":["JQ Primer", "More JQ"]}"#)
+                .unwrap();
+
+        let q = "{user,title:.titles[]}".parse::<Query>().unwrap();
+        let r = q.execute(&v).unwrap();
+        assert_eq!(
+            r#"{"title":"JQ Primer","user":"stedolan"}"#,
+            r[0].to_string()
+        );
+        assert_eq!(r#"{"title":"More JQ","user":"stedolan"}"#, r[1].to_string());
+
+        let q = "{(.user):.titles}".parse::<Query>().unwrap();
+        assert_eq!(
+            r#"{"stedolan":["JQ Primer","More JQ"]}"#,
+            q.execute(&v).unwrap()[0].to_string()
+        );
     }
 }
