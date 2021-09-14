@@ -1,6 +1,6 @@
 use crate::{
     index::Index,
-    parse::{init_parser, pipe, ParseError},
+    parse::{parse_init, parse_pipe, ParseError},
     query::Query,
     type_str, QueryError, QueryResult,
 };
@@ -106,7 +106,7 @@ pub(crate) fn parse(input: &str) -> IResult<&str, Construct, ParseError> {
 }
 
 fn parse_array(input: &str) -> IResult<&str, Construct, ParseError> {
-    let (input, inner) = delimited(char('['), pipe, char(']'))(input)?;
+    let (input, inner) = delimited(char('['), parse_pipe, char(']'))(input)?;
     Ok((input, Construct::Array(Box::new(inner))))
 }
 
@@ -118,11 +118,11 @@ fn parse_object(input: &str) -> IResult<&str, Construct, ParseError> {
             alt((
                 separated_pair(
                     alt((
-                        map(delimited(char('('), init_parser, char(')')), Key::Query),
+                        map(delimited(char('('), parse_init, char(')')), Key::Query),
                         map(alphanumeric1, |s: &str| Key::Simple(s.to_string())),
                     )),
                     char(':'),
-                    init_parser,
+                    parse_init,
                 ),
                 map(alphanumeric1, |s: &str| Construct::shorthand(s.to_string())),
             )),

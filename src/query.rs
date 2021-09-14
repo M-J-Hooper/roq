@@ -1,5 +1,7 @@
-use crate::{construction::Construct, index::Index, type_str, QueryError, QueryResult};
-use serde_json::{Map, Value};
+use crate::{
+    construction::Construct, empty, index::Index, null, single, type_str, QueryError, QueryResult,
+};
+use serde_json::Value;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Query {
@@ -21,7 +23,7 @@ impl Query {
         match self {
             Query::Empty => empty(),
             Query::Identity => single(value.clone()),
-            Query::Index(i) => index(value, i),
+            Query::Index(i) => i.execute(value),
             Query::Iterator => iterate(value),
             Query::Split(curr, next) => split(value, curr, next),
             Query::Chain(curr, next) => chain(value, curr, next),
@@ -31,40 +33,11 @@ impl Query {
     }
 }
 
-fn single(value: Value) -> QueryResult {
-    Ok(vec![value])
-}
-fn null() -> QueryResult {
-    single(Value::Null)
-}
-fn empty() -> QueryResult {
-    Ok(Vec::new())
-}
-
 fn optional(r: QueryResult) -> QueryResult {
     if r.is_ok() {
         r
     } else {
         empty()
-    }
-}
-
-fn index(v: &Value, i: &Index) -> QueryResult {
-    match (v, i) {
-        (Value::String(s), Index::Slice(r)) => {
-            let range = r.normalize(s.len());
-            let sliced = s[range].to_string();
-            single(Value::String(sliced))
-        }
-        (Value::Array(vec), Index::Slice(r)) => {
-            let range = r.normalize(vec.len());
-            single(Value::Array(vec[range].to_vec()))
-        }
-        (Value::Object(map), Index::String(s)) => object_index(map, s),
-        (Value::Array(arr), Index::Integer(i)) => array_index(arr, *i),
-        (v, Index::String(_)) => Err(QueryError::Index(type_str(v), "string")),
-        (v, Index::Integer(_)) => Err(QueryError::Index(type_str(v), "number")),
-        (v, Index::Slice(_)) => Err(QueryError::Index(type_str(v), "slice")),
     }
 }
 
@@ -95,32 +68,6 @@ fn iterate_results<'a, I: IntoIterator<Item = QueryResult>>(iter: I) -> QueryRes
         .into_iter()
         .flatten()
         .collect())
-}
-
-fn object_index(map: &Map<String, Value>, s: &str) -> QueryResult {
-    if let Some(vv) = map.get(s) {
-        single(vv.clone())
-    } else {
-        null()
-    }
-}
-
-fn array_index(arr: &Vec<Value>, i: i32) -> QueryResult {
-    let index = if i < 0 {
-        let j = -i as usize;
-        if j >= arr.len() {
-            return null();
-        }
-        arr.len() - j
-    } else {
-        i as usize
-    };
-
-    if let Some(vv) = arr.get(index) {
-        single(vv.clone())
-    } else {
-        null()
-    }
 }
 
 #[cfg(test)]

@@ -53,13 +53,13 @@ fn parse(input: &str) -> ParseResult {
     if input.is_empty() {
         return Ok(Query::Empty);
     }
-    let (_, query) = all_consuming(pipe)(input)?;
+    let (_, query) = all_consuming(parse_pipe)(input)?;
     Ok(query)
 }
 
-pub(crate) fn pipe(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, curr) = split(input)?;
-    let (input, opt) = opt(preceded(char('|'), pipe))(input)?;
+pub(crate) fn parse_pipe(input: &str) -> IResult<&str, Query, ParseError> {
+    let (input, curr) = parse_split(input)?;
+    let (input, opt) = opt(preceded(char('|'), parse_pipe))(input)?;
     if let Some(next) = opt {
         Ok((input, Query::Chain(Box::new(curr), Box::new(next))))
     } else {
@@ -67,9 +67,9 @@ pub(crate) fn pipe(input: &str) -> IResult<&str, Query, ParseError> {
     }
 }
 
-fn split(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, curr) = init_parser(input)?;
-    let (input, opt) = opt(preceded(char(','), split))(input)?;
+fn parse_split(input: &str) -> IResult<&str, Query, ParseError> {
+    let (input, curr) = parse_init(input)?;
+    let (input, opt) = opt(preceded(char(','), parse_split))(input)?;
     if let Some(next) = opt {
         Ok((input, Query::Split(Box::new(curr), Box::new(next))))
     } else {
@@ -77,34 +77,31 @@ fn split(input: &str) -> IResult<&str, Query, ParseError> {
     }
 }
 
-pub(crate) fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
+pub(crate) fn parse_init(input: &str) -> IResult<&str, Query, ParseError> {
     chain(alt((
-        optional(bare_object_index),
+        parse_index_shorthand,
         map(construction::parse, Query::Contruct),
-        preceded(char('.'), alt((optional(index), optional(iterator)))),
+        preceded(char('.'), alt((parse_index, parse_iterator))),
         value(Query::Identity, char('.')),
     )))(input)
 }
 
-fn parser(input: &str) -> IResult<&str, Query, ParseError> {
-    chain(alt((
-        optional(bare_object_index),
-        optional(index),
-        optional(iterator),
-    )))(input)
+fn parse_chain(input: &str) -> IResult<&str, Query, ParseError> {
+    chain(alt((parse_index_shorthand, parse_index, parse_iterator)))(input)
 }
 
-fn index(input: &str) -> IResult<&str, Query, ParseError> {
-    map(index::parse, Query::Index)(input)
+fn parse_index(input: &str) -> IResult<&str, Query, ParseError> {
+    optional(map(index::parse, Query::Index))(input)
 }
 
-fn iterator(input: &str) -> IResult<&str, Query, ParseError> {
-    value(Query::Iterator, tag("[]"))(input)
+fn parse_index_shorthand(input: &str) -> IResult<&str, Query, ParseError> {
+    optional(map(preceded(char('.'), alphanumeric1), |s: &str| {
+        Query::Index(Index::String(s.to_string()))
+    }))(input)
 }
 
-fn bare_object_index(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, i) = preceded(char('.'), alphanumeric1)(input)?;
-    Ok((input, Query::Index(Index::String(i.to_string()))))
+fn parse_iterator(input: &str) -> IResult<&str, Query, ParseError> {
+    optional(value(Query::Iterator, tag("[]")))(input)
 }
 
 fn optional<'a, F>(mut f: F) -> impl FnMut(&'a str) -> IResult<&'a str, Query, ParseError>
@@ -128,7 +125,7 @@ where
 {
     move |input: &'a str| {
         let (input, q) = f(input)?;
-        let (input, next) = opt(parser)(input)?;
+        let (input, next) = opt(parse_chain)(input)?;
         let q = match next {
             Some(qq) => Query::Chain(Box::new(q), Box::new(qq)),
             None => q,

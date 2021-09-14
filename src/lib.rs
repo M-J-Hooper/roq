@@ -29,3 +29,15 @@ pub(crate) fn type_str(v: &Value) -> &'static str {
         Value::Object(_) => "object",
     }
 }
+
+pub(crate) fn single(value: Value) -> QueryResult {
+    Ok(vec![value])
+}
+
+pub(crate) fn null() -> QueryResult {
+    single(Value::Null)
+}
+
+pub(crate) fn empty() -> QueryResult {
+    Ok(Vec::new())
+}
