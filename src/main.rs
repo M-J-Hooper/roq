@@ -30,7 +30,7 @@ fn main() {
         None => return eprintln!("No query string provided"),
     };
 
-    let query = match query_input.parse::<Query>() {
+    let query: Query = match query_input.parse() {
         Ok(q) => q,
         Err(e) => return eprintln!("Failed to parse query string: {}", e),
     };
