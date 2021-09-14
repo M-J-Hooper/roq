@@ -36,7 +36,7 @@ impl Construct {
 
     pub fn shorthand(s: String) -> (Key, Query) {
         let k = Key::Simple(s.clone());
-        let q = Query::Index(Index::String(s), false, Box::new(Query::Identity));
+        let q = Query::Index(Index::String(s));
         (k, q)
     }
 }

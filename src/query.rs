@@ -5,11 +5,12 @@ use serde_json::{Map, Value};
 pub enum Query {
     Empty,
     Identity,
-    Index(Index, bool, Box<Query>),
-    Iterator(bool, Box<Query>),
-    Spliterator(Box<Query>, Box<Query>),
-    Pipe(Box<Query>, Box<Query>),
+    Index(Index),
+    Iterator,
+    Split(Box<Query>, Box<Query>),
+    Chain(Box<Query>, Box<Query>),
     Contruct(Construct),
+    Optional(Box<Query>),
 }
 
 impl Query {
@@ -20,11 +21,12 @@ impl Query {
         match self {
             Query::Empty => empty(),
             Query::Identity => single(value.clone()),
-            Query::Index(i, opt, next) => check(index(value, i, next), *opt),
-            Query::Iterator(opt, next) => check(iterate(value, next), *opt),
-            Query::Spliterator(curr, next) => split(value, curr, next),
-            Query::Pipe(curr, next) => pipe(value, curr, next),
+            Query::Index(i) => index(value, i),
+            Query::Iterator => iterate(value),
+            Query::Split(curr, next) => split(value, curr, next),
+            Query::Chain(curr, next) => chain(value, curr, next),
             Query::Contruct(c) => c.execute(value),
+            Query::Optional(inner) => optional(inner.execute(value)),
         }
     }
 }
@@ -39,35 +41,34 @@ fn empty() -> QueryResult {
     Ok(Vec::new())
 }
 
-fn check(r: QueryResult, opt: bool) -> QueryResult {
-    if r.is_ok() || !opt {
+fn optional(r: QueryResult) -> QueryResult {
+    if r.is_ok() {
         r
     } else {
         empty()
     }
 }
 
-fn index(v: &Value, i: &Index, next: &Query) -> QueryResult {
+fn index(v: &Value, i: &Index) -> QueryResult {
     match (v, i) {
         (Value::String(s), Index::Slice(r)) => {
             let range = r.normalize(s.len());
             let sliced = s[range].to_string();
-            next.execute(&Value::String(sliced))
+            single(Value::String(sliced))
         }
         (Value::Array(vec), Index::Slice(r)) => {
             let range = r.normalize(vec.len());
-            let sliced = vec[range].to_vec();
-            next.execute(&Value::Array(sliced))
+            single(Value::Array(vec[range].to_vec()))
         }
-        (Value::Object(map), Index::String(s)) => object_index(map, s, next),
-        (Value::Array(arr), Index::Integer(i)) => array_index(arr, *i, next),
+        (Value::Object(map), Index::String(s)) => object_index(map, s),
+        (Value::Array(arr), Index::Integer(i)) => array_index(arr, *i),
         (v, Index::String(_)) => Err(QueryError::Index(type_str(v), "string")),
         (v, Index::Integer(_)) => Err(QueryError::Index(type_str(v), "number")),
         (v, Index::Slice(_)) => Err(QueryError::Index(type_str(v), "slice")),
     }
 }
 
-fn pipe(v: &Value, curr: &Query, next: &Query) -> QueryResult {
+fn chain(v: &Value, curr: &Query, next: &Query) -> QueryResult {
     iterate_values(curr.execute(v)?.iter(), next)
 }
 
@@ -75,10 +76,10 @@ fn split(v: &Value, curr: &Query, next: &Query) -> QueryResult {
     iterate_results(vec![curr.execute(v), next.execute(v)])
 }
 
-fn iterate(v: &Value, next: &Query) -> QueryResult {
+fn iterate(v: &Value) -> QueryResult {
     match v {
-        Value::Array(arr) => iterate_values(arr, next),
-        Value::Object(map) => iterate_values(map.values(), next),
+        Value::Array(arr) => Ok(arr.clone()),
+        Value::Object(map) => Ok(map.values().into_iter().map(|v| v.clone()).collect()),
         v => Err(QueryError::Iterate(type_str(v))),
     }
 }
@@ -96,15 +97,15 @@ fn iterate_results<'a, I: IntoIterator<Item = QueryResult>>(iter: I) -> QueryRes
         .collect())
 }
 
-fn object_index(map: &Map<String, Value>, s: &str, next: &Query) -> QueryResult {
+fn object_index(map: &Map<String, Value>, s: &str) -> QueryResult {
     if let Some(vv) = map.get(s) {
-        next.execute(vv)
+        single(vv.clone())
     } else {
         null()
     }
 }
 
-fn array_index(arr: &Vec<Value>, i: i32, next: &Query) -> QueryResult {
+fn array_index(arr: &Vec<Value>, i: i32) -> QueryResult {
     let index = if i < 0 {
         let j = -i as usize;
         if j >= arr.len() {
@@ -116,7 +117,7 @@ fn array_index(arr: &Vec<Value>, i: i32, next: &Query) -> QueryResult {
     };
 
     if let Some(vv) = arr.get(index) {
-        next.execute(vv)
+        single(vv.clone())
     } else {
         null()
     }
