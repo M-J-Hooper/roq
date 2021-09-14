@@ -1,3 +1,13 @@
+use nom::{
+    branch::alt,
+    character::complete::{char, i32},
+    combinator::map,
+    sequence::{preceded, separated_pair, terminated},
+    IResult,
+};
+
+use crate::parse::ParseError;
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Range(Option<i32>, Option<i32>);
 
@@ -40,6 +50,14 @@ impl Range {
             (Some(l), Some(u)) => l..u,
         }
     }
+}
+
+pub(crate) fn parse(input: &str) -> IResult<&str, Range, ParseError> {
+    alt((
+        map(separated_pair(i32, char(':'), i32), Range::new),
+        map(preceded(char(':'), i32), Range::upper),
+        map(terminated(i32, char(':')), Range::lower),
+    ))(input)
 }
 
 #[cfg(test)]

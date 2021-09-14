@@ -1,18 +1,5 @@
-use crate::{construction::Construct, range::Range};
+use crate::{construction::Construct, index::Index, type_str, QueryError, QueryResult};
 use serde_json::{Map, Value};
-use thiserror::Error;
-
-pub type QueryResult = Result<Vec<Value>, QueryError>;
-
-#[derive(Error, Debug)]
-pub enum QueryError {
-    #[error("Cannot index {0} with {1}")]
-    Index(&'static str, &'static str),
-    #[error("Cannot iterate over {0}")]
-    Iterate(&'static str),
-    #[error("Cannot use {0} as object key")]
-    ObjectKey(&'static str),
-}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Query {
@@ -23,13 +10,6 @@ pub enum Query {
     Spliterator(Box<Query>, Box<Query>),
     Pipe(Box<Query>, Box<Query>),
     Contruct(Construct),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Index {
-    String(String),
-    Integer(i32),
-    Slice(Range),
 }
 
 impl Query {
@@ -139,17 +119,6 @@ fn array_index(arr: &Vec<Value>, i: i32, next: &Query) -> QueryResult {
         next.execute(vv)
     } else {
         null()
-    }
-}
-
-pub fn type_str(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "null",
-        Value::Bool(_) => "bool",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
     }
 }
 

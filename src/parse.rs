@@ -1,16 +1,13 @@
-use crate::construction::{Construct, Key};
-use crate::query::{Index, Query};
-use crate::range::Range;
-use nom::bytes::complete::take_while1;
-use nom::combinator::{all_consuming, success};
-use nom::error::{self, ErrorKind};
-use nom::multi::separated_list0;
+use crate::construction::{self};
+use crate::index::{self, Index};
+use crate::query::Query;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alphanumeric1, char, i32},
-    combinator::{map, opt, value},
-    sequence::{delimited, preceded, separated_pair, terminated},
+    character::complete::{alphanumeric1, char},
+    combinator::{all_consuming, map, opt, success, value},
+    error::{self, ErrorKind},
+    sequence::preceded,
     IResult,
 };
 use thiserror::Error;
@@ -60,7 +57,7 @@ fn parse(input: &str) -> ParseResult {
     Ok(query)
 }
 
-fn pipe(input: &str) -> IResult<&str, Query, ParseError> {
+pub(crate) fn pipe(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, curr) = split(input)?;
     let (input, opt) = opt(preceded(char('|'), pipe))(input)?;
     if let Some(next) = opt {
@@ -80,41 +77,13 @@ fn split(input: &str) -> IResult<&str, Query, ParseError> {
     }
 }
 
-fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
+pub(crate) fn init_parser(input: &str) -> IResult<&str, Query, ParseError> {
     alt((
         bare_object_index,
-        construct_array,
-        construct_object,
+        map(construction::parse, Query::Contruct),
         preceded(char('.'), alt((index, iterator))),
         value(Query::Identity, char('.')),
     ))(input)
-}
-
-fn construct_array(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, inner) = delimited(char('['), pipe, char(']'))(input)?;
-    Ok((input, Query::Contruct(Construct::Array(Box::new(inner)))))
-}
-
-fn construct_object(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, kvs) = delimited(
-        char('{'),
-        separated_list0(
-            char(','),
-            alt((
-                separated_pair(
-                    alt((
-                        map(delimited(char('('), init_parser, char(')')), Key::Query),
-                        map(alphanumeric1, |s: &str| Key::Simple(s.to_string())),
-                    )),
-                    char(':'),
-                    init_parser,
-                ),
-                map(alphanumeric1, |s: &str| Construct::shorthand(s.to_string())),
-            )),
-        ),
-        char('}'),
-    )(input)?;
-    Ok((input, Query::Contruct(Construct::Object(kvs))))
 }
 
 fn parser(input: &str) -> IResult<&str, Query, ParseError> {
@@ -122,26 +91,7 @@ fn parser(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 fn index(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, i) = delimited(
-        char('['),
-        alt((
-            map(
-                alt((
-                    map(separated_pair(i32, char(':'), i32), Range::new),
-                    map(preceded(char(':'), i32), Range::upper),
-                    map(terminated(i32, char(':')), Range::lower),
-                )),
-                Index::Slice,
-            ),
-            map(i32, Index::Integer),
-            map(
-                delimited(char('"'), take_while1(|c| c != '"'), char('"')),
-                |s: &str| Index::String(s.to_string()),
-            ),
-        )),
-        char(']'),
-    )(input)?;
-
+    let (input, i) = index::parse(input)?;
     let (input, opt) = opt(char('?'))(input)?;
     let (input, next) = parser(input)?;
     Ok((input, Query::Index(i, opt.is_some(), Box::new(next))))
@@ -167,6 +117,11 @@ fn bare_object_index(input: &str) -> IResult<&str, Query, ParseError> {
 
 #[cfg(test)]
 mod test {
+    use crate::{
+        construction::{Construct, Key},
+        range::Range,
+    };
+
     use super::*;
 
     #[test]

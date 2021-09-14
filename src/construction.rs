@@ -1,4 +1,17 @@
-use crate::query::{type_str, Index, Query, QueryError, QueryResult};
+use crate::{
+    index::Index,
+    parse::{init_parser, pipe, ParseError},
+    query::Query,
+    type_str, QueryError, QueryResult,
+};
+use nom::{
+    branch::alt,
+    character::complete::{alphanumeric1, char},
+    combinator::map,
+    multi::separated_list0,
+    sequence::{delimited, separated_pair},
+    IResult,
+};
 use serde_json::{Map, Value};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -78,12 +91,43 @@ fn construct_object(v: &Value, kvs: &Vec<(Key, Query)>) -> QueryResult {
             let l = perms.len();
 
             let k = x % l;
-            let kv = &perms[k];
-            map.insert(kv.0.clone(), kv.1.clone());
+            let (key, value) = &perms[k];
+            map.insert(key.clone(), value.clone());
 
             x /= l;
         }
         objs.push(Value::Object(map));
     }
     Ok(objs)
+}
+
+pub(crate) fn parse(input: &str) -> IResult<&str, Construct, ParseError> {
+    alt((parse_array, parse_object))(input)
+}
+
+fn parse_array(input: &str) -> IResult<&str, Construct, ParseError> {
+    let (input, inner) = delimited(char('['), pipe, char(']'))(input)?;
+    Ok((input, Construct::Array(Box::new(inner))))
+}
+
+fn parse_object(input: &str) -> IResult<&str, Construct, ParseError> {
+    let (input, kvs) = delimited(
+        char('{'),
+        separated_list0(
+            char(','),
+            alt((
+                separated_pair(
+                    alt((
+                        map(delimited(char('('), init_parser, char(')')), Key::Query),
+                        map(alphanumeric1, |s: &str| Key::Simple(s.to_string())),
+                    )),
+                    char(':'),
+                    init_parser,
+                ),
+                map(alphanumeric1, |s: &str| Construct::shorthand(s.to_string())),
+            )),
+        ),
+        char('}'),
+    )(input)?;
+    Ok((input, Construct::Object(kvs)))
 }
