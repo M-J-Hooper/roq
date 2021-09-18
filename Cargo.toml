@@ -1,5 +1,5 @@
 [package]
-name = "roq"
+name = "rq"
 version = "0.1.0"
 authors = ["Matt Hooper <mattt.hoooper@gmail.com>"]
 edition = "2018"
@@ -12,9 +12,9 @@ thiserror = "1.0"
 nom = "7.0.0"
 
 [lib]
-name = "roq"
+name = "rq"
 path = "src/lib.rs"
 
 [[bin]]
-name = "roq"
+name = "rq"
 path = "src/main.rs"
