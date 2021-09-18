@@ -1,11 +1,14 @@
 use serde_json::Value;
 use thiserror::Error;
 
-mod construction;
-mod index;
-pub mod parse;
 pub mod query;
+
+mod parse;
+mod index;
 mod range;
+mod construction;
+mod raw;
+mod operators;
 
 pub type QueryResult = Result<Vec<Value>, QueryError>;
 

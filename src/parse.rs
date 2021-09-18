@@ -1,6 +1,7 @@
 use crate::construction::{self};
 use crate::index::{self, Index};
 use crate::query::Query;
+use crate::{operators, raw};
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -84,6 +85,8 @@ pub(crate) fn parse_init(input: &str) -> IResult<&str, Query, ParseError> {
             map(construction::parse, Query::Contruct),
             preceded(char('.'), alt((parse_index, parse_iterator))),
         ))),
+        //map(operators::parse, |op| Query::Op(Box::new(op))),
+        map(raw::parse, Query::Raw),
         value(Query::Recurse, tag("..")),
         value(Query::Identity, char('.'))
     ))(input)

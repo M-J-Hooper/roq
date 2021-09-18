@@ -1,6 +1,4 @@
-use crate::{
-    construction::Construct, empty, index::Index, null, single, type_str, QueryError, QueryResult,
-};
+use crate::{QueryError, QueryResult, construction::Construct, empty, index::Index, null, operators::Op, raw::Raw, single, type_str};
 use serde_json::Value;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -14,6 +12,8 @@ pub enum Query {
     Chain(Box<Query>, Box<Query>),
     Contruct(Construct),
     Optional(Box<Query>),
+    Raw(Raw),
+    Op(Box<Op>)
 }
 
 impl Query {
@@ -31,6 +31,8 @@ impl Query {
             Query::Chain(curr, next) => chain(value, curr, next),
             Query::Contruct(c) => c.execute(value),
             Query::Optional(inner) => optional(inner.execute(value)),
+            Query::Raw(r) => r.execute(),
+            Query::Op(op) => op.execute(value)
         }
     }
 }
