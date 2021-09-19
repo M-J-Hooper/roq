@@ -247,4 +247,15 @@ mod tests {
             q.execute(&v).unwrap()[0].to_string()
         );
     }
+
+    #[test]
+    fn subtraction() {
+        let q: Query = "4 - .a".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"{"a":3}"#).unwrap();
+        assert_eq!(r#"1"#, q.execute(&v).unwrap()[0].to_string());
+
+        let q: Query = r#". - ["xml", "yaml"]"#.parse().unwrap();
+        let v: Value = serde_json::from_str(r#"["xml", "yaml", "json"]"#).unwrap();
+        assert_eq!(r#"["json"]"#, q.execute(&v).unwrap()[0].to_string());
+    }
 }

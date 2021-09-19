@@ -42,7 +42,7 @@ impl Executable for Op {
 fn operate(sign: &Sign, l: &Value, r: &Value) -> QueryResult {
     match sign {
         Sign::Add => add(l, r),
-        Sign::Sub => todo!(),
+        Sign::Sub => sub(l, r),
         Sign::Mul => todo!(),
         Sign::Div => todo!(),
         Sign::Mod => todo!(),
@@ -51,7 +51,7 @@ fn operate(sign: &Sign, l: &Value, r: &Value) -> QueryResult {
 
 fn add(l: &Value, r: &Value) -> QueryResult {
     match (l, r) {
-        (Value::Number(n), Value::Number(m)) => add_numbers(n, m),
+        (Value::Number(n), Value::Number(m)) => combine_numbers(n, m, |a, b| a + b, |a, b| a + b),
         (Value::String(s), Value::String(t)) => {
             single(Value::String(chain_collect(&s.chars(), &t.chars())))
         }
@@ -63,6 +63,18 @@ fn add(l: &Value, r: &Value) -> QueryResult {
     }
 }
 
+fn sub(l: &Value, r: &Value) -> QueryResult {
+    match (l, r) {
+        (Value::Number(n), Value::Number(m)) => combine_numbers(n, m, |a, b| a - b, |a, b| a - b),
+        (Value::Array(a), Value::Array(b)) => single(Value::Array(
+            a.clone().into_iter().filter(|v| !b.contains(v)).collect(),
+        )),
+        (Value::Null, Value::Null) => null(),
+        (v, Value::Null) => single(v.clone()),
+        (v, vv) => Err(QueryError::Operation("subtract", type_str(v), type_str(vv))),
+    }
+}
+
 fn chain_collect<T, I, O>(a: &T, b: &T) -> O
 where
     T: IntoIterator<Item = I> + Clone,
@@ -71,11 +83,15 @@ where
     a.clone().into_iter().chain(b.clone().into_iter()).collect()
 }
 
-fn add_numbers(n: &Number, m: &Number) -> QueryResult {
+fn combine_numbers<F64, I64>(n: &Number, m: &Number, i: I64, f: F64) -> QueryResult
+where
+    I64: Fn(i64, i64) -> i64,
+    F64: Fn(f64, f64) -> f64,
+{
     let num = match (n.as_i64(), m.as_i64()) {
-        (Some(i), Some(j)) => Some(Number::from(i + j)),
+        (Some(n), Some(m)) => Some(Number::from(i(n, m))),
         _ => match (n.as_f64(), m.as_f64()) {
-            (Some(i), Some(j)) => Number::from_f64(i + j),
+            (Some(n), Some(m)) => Number::from_f64(f(n, m)),
             _ => None,
         },
     };

@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_while},
     character::complete::{char, i32},
-    combinator::{map, value},
+    combinator::{map, opt, value},
     number::complete::float,
     sequence::delimited,
     IResult,
@@ -32,14 +32,22 @@ impl Parseable for Raw {
                     delimited(char('"'), take_while(|c| c != '"'), char('"')),
                     |s: &str| Value::String(s.to_string()),
                 ),
-                map(float, |n| {
-                    Value::Number(Number::from_f64(n as f64).unwrap())
-                }),
-                map(i32, |n| Value::Number(Number::from(n))),
+                map(parse_number, Value::Number),
                 value(Value::Null, tag("null")),
             )),
             Raw,
         )(input)
+    }
+}
+
+fn parse_number(input: &str) -> IResult<&str, Number, ParseError> {
+    let (input, i) = i32(input)?;
+    let (input, opt) = opt(float)(input)?;
+    if let Some(n) = opt {
+        let n = (i as f32) + n;
+        Ok((input, Number::from_f64(n as f64).unwrap()))
+    } else {
+        Ok((input, Number::from(i)))
     }
 }
 
@@ -75,7 +83,7 @@ mod tests {
         );
         assert_eq!(
             Raw(Value::Number(Number::from_f64(0.5).unwrap())),
-            Raw::parse(".5").unwrap()
+            Raw::parse("0.5").unwrap()
         );
     }
 }
