@@ -4,6 +4,7 @@ use thiserror::Error;
 mod combinator;
 mod construction;
 mod index;
+mod operators;
 pub mod parse;
 pub mod query;
 mod range;
@@ -20,6 +21,10 @@ pub enum QueryError {
     Iterate(&'static str),
     #[error("Cannot use {0} as object key")]
     ObjectKey(&'static str),
+    #[error("Numerical operation was not possible")]
+    Numerical,
+    #[error("Cannot {0} {1} and {2}")]
+    Operation(&'static str, &'static str, &'static str),
 }
 
 pub(crate) fn type_str(v: &Value) -> &'static str {
@@ -33,12 +38,12 @@ pub(crate) fn type_str(v: &Value) -> &'static str {
     }
 }
 
-pub(crate) fn single(value: &Value) -> QueryResult {
-    Ok(vec![value.clone()])
+pub(crate) fn single(value: Value) -> QueryResult {
+    Ok(vec![value])
 }
 
 pub(crate) fn null() -> QueryResult {
-    single(&Value::Null)
+    single(Value::Null)
 }
 
 pub(crate) fn empty() -> QueryResult {
@@ -215,5 +220,31 @@ mod tests {
         let q: Query = ".. | .a?".parse().unwrap();
         let v: Value = serde_json::from_str(r#"[[{"a":1}]]"#).unwrap();
         assert_eq!(r#"1"#, q.execute(&v).unwrap()[0].to_string());
+    }
+
+    #[test]
+    fn addition() {
+        let q: Query = ".a + 1".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"{"a": 7}"#).unwrap();
+        assert_eq!(r#"8"#, q.execute(&v).unwrap()[0].to_string());
+
+        let q: Query = ".a + .b".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"{"a": [1,2], "b": [3,4]}"#).unwrap();
+        assert_eq!(r#"[1,2,3,4]"#, q.execute(&v).unwrap()[0].to_string());
+
+        let q: Query = ".a + null".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"{"a": 1}"#).unwrap();
+        assert_eq!(r#"1"#, q.execute(&v).unwrap()[0].to_string());
+
+        let q: Query = ".a + 1".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(r#"1"#, q.execute(&v).unwrap()[0].to_string());
+
+        let q: Query = "{a: 1} + {b: 2} + {c: 3} + {a: 42}".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"null"#).unwrap();
+        assert_eq!(
+            r#"{"a":42,"b":2,"c":3}"#,
+            q.execute(&v).unwrap()[0].to_string()
+        );
     }
 }

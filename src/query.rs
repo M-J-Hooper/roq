@@ -3,7 +3,9 @@ use crate::{
     construction::Construct,
     empty,
     index::Index,
-    null, single, type_str, QueryError, QueryResult,
+    operators::Op,
+    raw::Raw,
+    single, type_str, QueryError, QueryResult,
 };
 use serde_json::Value;
 
@@ -18,6 +20,8 @@ pub enum Query {
     Chain(Box<Chain>),
     Contruct(Construct),
     Optional(Box<Optional>),
+    Raw(Raw),
+    Op(Box<Op>),
 }
 
 pub trait Executable {
@@ -26,12 +30,9 @@ pub trait Executable {
 
 impl Executable for Query {
     fn execute(&self, value: &Value) -> QueryResult {
-        if value.is_null() {
-            return null();
-        }
         match self {
             Query::Empty => empty(),
-            Query::Identity => single(value),
+            Query::Identity => single(value.clone()),
             Query::Iterator => iterate(value),
             Query::Recurse => recurse(value),
             Query::Index(i) => i.execute(value),
@@ -39,6 +40,8 @@ impl Executable for Query {
             Query::Chain(chain) => chain.execute(value),
             Query::Contruct(c) => c.execute(value),
             Query::Optional(opt) => opt.execute(value),
+            Query::Raw(r) => r.execute(value),
+            Query::Op(op) => op.execute(value),
         }
     }
 }
@@ -55,7 +58,7 @@ fn recurse(v: &Value) -> QueryResult {
     let children: Vec<_> = match v {
         Value::Array(arr) => arr.iter().collect(),
         Value::Object(map) => map.values().into_iter().collect(),
-        vv => return single(vv),
+        vv => return single(vv.clone()),
     };
 
     let mut res = vec![v.clone()];

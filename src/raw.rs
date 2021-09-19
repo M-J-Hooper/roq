@@ -1,8 +1,8 @@
 use nom::{
     branch::alt,
-    bytes::complete::take_while,
+    bytes::complete::{tag, take_while},
     character::complete::{char, i32},
-    combinator::map,
+    combinator::{map, value},
     number::complete::float,
     sequence::delimited,
     IResult,
@@ -20,7 +20,7 @@ pub struct Raw(Value);
 
 impl Executable for Raw {
     fn execute(&self, _: &Value) -> QueryResult {
-        single(&self.0)
+        single(self.0.clone())
     }
 }
 
@@ -32,10 +32,11 @@ impl Parseable for Raw {
                     delimited(char('"'), take_while(|c| c != '"'), char('"')),
                     |s: &str| Value::String(s.to_string()),
                 ),
-                map(i32, |n| Value::Number(Number::from(n))),
                 map(float, |n| {
                     Value::Number(Number::from_f64(n as f64).unwrap())
                 }),
+                map(i32, |n| Value::Number(Number::from(n))),
+                value(Value::Null, tag("null")),
             )),
             Raw,
         )(input)
