@@ -28,11 +28,11 @@ impl Executable for Index {
             (Value::String(s), Index::Slice(r)) => {
                 let range = r.normalize(s.len());
                 let sliced = s[range].to_string();
-                single(Value::String(sliced))
+                single(&Value::String(sliced))
             }
             (Value::Array(vec), Index::Slice(r)) => {
                 let range = r.normalize(vec.len());
-                single(Value::Array(vec[range].to_vec()))
+                single(&Value::Array(vec[range].to_vec()))
             }
             (Value::Object(map), Index::String(s)) => index_object(map, s),
             (Value::Array(arr), Index::Integer(i)) => index_array(arr, *i),
@@ -45,7 +45,7 @@ impl Executable for Index {
 
 fn index_object(map: &Map<String, Value>, s: &str) -> QueryResult {
     if let Some(vv) = map.get(s) {
-        single(vv.clone())
+        single(vv)
     } else {
         null()
     }
@@ -63,7 +63,7 @@ fn index_array(arr: &Vec<Value>, i: i32) -> QueryResult {
     };
 
     if let Some(vv) = arr.get(index) {
-        single(vv.clone())
+        single(vv)
     } else {
         null()
     }

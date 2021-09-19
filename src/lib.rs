@@ -7,6 +7,7 @@ mod index;
 pub mod parse;
 pub mod query;
 mod range;
+mod raw;
 mod space;
 
 pub type QueryResult = Result<Vec<Value>, QueryError>;
@@ -32,12 +33,12 @@ pub(crate) fn type_str(v: &Value) -> &'static str {
     }
 }
 
-pub(crate) fn single(value: Value) -> QueryResult {
-    Ok(vec![value])
+pub(crate) fn single(value: &Value) -> QueryResult {
+    Ok(vec![value.clone()])
 }
 
 pub(crate) fn null() -> QueryResult {
-    single(Value::Null)
+    single(&Value::Null)
 }
 
 pub(crate) fn empty() -> QueryResult {

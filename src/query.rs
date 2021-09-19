@@ -31,7 +31,7 @@ impl Executable for Query {
         }
         match self {
             Query::Empty => empty(),
-            Query::Identity => single(value.clone()),
+            Query::Identity => single(value),
             Query::Iterator => iterate(value),
             Query::Recurse => recurse(value),
             Query::Index(i) => i.execute(value),
@@ -55,7 +55,7 @@ fn recurse(v: &Value) -> QueryResult {
     let children: Vec<_> = match v {
         Value::Array(arr) => arr.iter().collect(),
         Value::Object(map) => map.values().into_iter().collect(),
-        vv => return single(vv.clone()),
+        vv => return single(vv),
     };
 
     let mut res = vec![v.clone()];
