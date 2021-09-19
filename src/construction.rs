@@ -1,7 +1,7 @@
 use crate::{
     index::Index,
-    parse::{parse_init, parse_pipe, ParseError},
-    query::Query,
+    parse::{parse_init, parse_pipe, ParseError, Parseable},
+    query::{Executable, Query},
     type_str, QueryError, QueryResult,
 };
 use nom::{
@@ -27,17 +27,19 @@ pub enum Key {
 }
 
 impl Construct {
-    pub fn execute(&self, value: &Value) -> QueryResult {
-        match self {
-            Construct::Array(inner) => construct_array(value, inner),
-            Construct::Object(kvs) => construct_object(value, kvs),
-        }
-    }
-
     pub fn shorthand(s: String) -> (Key, Query) {
         let k = Key::Simple(s.clone());
         let q = Query::Index(Index::String(s));
         (k, q)
+    }
+}
+
+impl Executable for Construct {
+    fn execute(&self, value: &Value) -> QueryResult {
+        match self {
+            Construct::Array(inner) => construct_array(value, inner),
+            Construct::Object(kvs) => construct_object(value, kvs),
+        }
     }
 }
 
@@ -101,8 +103,10 @@ fn construct_object(v: &Value, kvs: &Vec<(Key, Query)>) -> QueryResult {
     Ok(objs)
 }
 
-pub(crate) fn parse(input: &str) -> IResult<&str, Construct, ParseError> {
-    alt((parse_array, parse_object))(input)
+impl Parseable for Construct {
+    fn parse(input: &str) -> IResult<&str, Construct, ParseError> {
+        alt((parse_array, parse_object))(input)
+    }
 }
 
 fn parse_array(input: &str) -> IResult<&str, Construct, ParseError> {

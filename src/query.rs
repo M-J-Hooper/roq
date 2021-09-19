@@ -1,5 +1,9 @@
 use crate::{
-    construction::Construct, empty, index::Index, null, single, type_str, QueryError, QueryResult,
+    combinator::{Chain, Optional, Split},
+    construction::Construct,
+    empty,
+    index::Index,
+    null, single, type_str, QueryError, QueryResult,
 };
 use serde_json::Value;
 
@@ -10,51 +14,39 @@ pub enum Query {
     Index(Index),
     Iterator,
     Recurse,
-    Split(Box<Query>, Box<Query>),
-    Chain(Box<Query>, Box<Query>),
+    Split(Box<Split>),
+    Chain(Box<Chain>),
     Contruct(Construct),
-    Optional(Box<Query>),
+    Optional(Box<Optional>),
 }
 
-impl Query {
-    pub fn execute(&self, value: &Value) -> QueryResult {
+pub trait Executable {
+    fn execute(&self, value: &Value) -> QueryResult;
+}
+
+impl Executable for Query {
+    fn execute(&self, value: &Value) -> QueryResult {
         if value.is_null() {
             return null();
         }
         match self {
             Query::Empty => empty(),
             Query::Identity => single(value.clone()),
-            Query::Index(i) => i.execute(value),
             Query::Iterator => iterate(value),
             Query::Recurse => recurse(value),
-            Query::Split(curr, next) => split(value, curr, next),
-            Query::Chain(curr, next) => chain(value, curr, next),
+            Query::Index(i) => i.execute(value),
+            Query::Split(split) => split.execute(value),
+            Query::Chain(chain) => chain.execute(value),
             Query::Contruct(c) => c.execute(value),
-            Query::Optional(inner) => optional(inner.execute(value)),
+            Query::Optional(opt) => opt.execute(value),
         }
     }
-}
-
-fn optional(r: QueryResult) -> QueryResult {
-    if r.is_ok() {
-        r
-    } else {
-        empty()
-    }
-}
-
-fn chain(v: &Value, curr: &Query, next: &Query) -> QueryResult {
-    iterate_values(curr.execute(v)?.iter(), next)
-}
-
-fn split(v: &Value, curr: &Query, next: &Query) -> QueryResult {
-    iterate_results(vec![curr.execute(v), next.execute(v)])
 }
 
 fn iterate(v: &Value) -> QueryResult {
     match v {
         Value::Array(arr) => Ok(arr.clone()),
-        Value::Object(map) => Ok(map.values().into_iter().map(|v| v.clone()).collect()),
+        Value::Object(map) => Ok(map.values().into_iter().cloned().collect()),
         v => Err(QueryError::Iterate(type_str(v))),
     }
 }
@@ -71,7 +63,10 @@ fn recurse(v: &Value) -> QueryResult {
     Ok(res)
 }
 
-fn iterate_values<'a, I: IntoIterator<Item = &'a Value>>(iter: I, next: &Query) -> QueryResult {
+pub(crate) fn iterate_values<'a, I: IntoIterator<Item = &'a Value>>(
+    iter: I,
+    next: &Query,
+) -> QueryResult {
     iterate_results(iter.into_iter().map(|vv| next.execute(vv)))
 }
 

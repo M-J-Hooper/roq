@@ -1,6 +1,7 @@
 use serde_json::Value;
 use thiserror::Error;
 
+mod combinator;
 mod construction;
 mod index;
 pub mod parse;
@@ -45,9 +46,8 @@ pub(crate) fn empty() -> QueryResult {
 // Tests are taken from examples at https://stedolan.github.io/jq/manual
 #[cfg(test)]
 mod test {
+    use crate::query::{Executable, Query};
     use serde_json::Value;
-    use crate::query::Query;
-
 
     #[test]
     fn identity() {

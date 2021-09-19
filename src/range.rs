@@ -6,7 +6,7 @@ use nom::{
     IResult,
 };
 
-use crate::parse::ParseError;
+use crate::parse::{ParseError, Parseable};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Range(Option<i32>, Option<i32>);
@@ -52,12 +52,14 @@ impl Range {
     }
 }
 
-pub(crate) fn parse(input: &str) -> IResult<&str, Range, ParseError> {
-    alt((
-        map(separated_pair(i32, char(':'), i32), Range::new),
-        map(preceded(char(':'), i32), Range::upper),
-        map(terminated(i32, char(':')), Range::lower),
-    ))(input)
+impl Parseable for Range {
+    fn parse(input: &str) -> IResult<&str, Range, ParseError> {
+        alt((
+            map(separated_pair(i32, char(':'), i32), Range::new),
+            map(preceded(char(':'), i32), Range::upper),
+            map(terminated(i32, char(':')), Range::lower),
+        ))(input)
+    }
 }
 
 #[cfg(test)]

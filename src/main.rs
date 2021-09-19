@@ -1,4 +1,4 @@
-use rq::query::Query;
+use rq::query::{Executable, Query};
 use serde_json::Value;
 use std::{
     env,
