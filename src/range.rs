@@ -53,7 +53,7 @@ impl Range {
 }
 
 impl Parseable for Range {
-    fn parse(input: &str) -> IResult<&str, Range, ParseError> {
+    fn parser(input: &str) -> IResult<&str, Range, ParseError> {
         alt((
             map(separated_pair(i32, char(':'), i32), Range::new),
             map(preceded(char(':'), i32), Range::upper),
@@ -91,5 +91,27 @@ mod tests {
         assert_eq!(0..9, Range::upper(-1).normalize(10));
         assert_eq!(0..10, Range::upper(100).normalize(10));
         assert_eq!(0..0, Range::upper(-100).normalize(10));
+    }
+
+    #[test]
+    fn parse() {
+        assert!(Range::parse(":").is_err());
+        assert!(Range::parse("1::2").is_err());
+        assert!(Range::parse(":2:").is_err());
+        assert!(Range::parse("--2").is_err());
+        assert!(Range::parse("-2:4:").is_err());
+        assert!(Range::parse("a").is_err());
+        assert!(Range::parse("1: 2").is_err());
+        assert!(Range::parse("1 :2").is_err());
+        assert!(Range::parse(": 2").is_err());
+        assert!(Range::parse("2 :").is_err());
+
+        assert_eq!(Range::new((-1, 2)), Range::parse("-1:2").unwrap());
+        assert_eq!(Range::upper(2), Range::parse(":2").unwrap());
+        assert_eq!(Range::lower(2), Range::parse("2:").unwrap());
+        assert_eq!(
+            Range::new((9001, -9001)),
+            Range::parse("9001:-9001").unwrap()
+        );
     }
 }

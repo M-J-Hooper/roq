@@ -104,7 +104,7 @@ fn construct_object(v: &Value, kvs: &Vec<(Key, Query)>) -> QueryResult {
 }
 
 impl Parseable for Construct {
-    fn parse(input: &str) -> IResult<&str, Construct, ParseError> {
+    fn parser(input: &str) -> IResult<&str, Construct, ParseError> {
         alt((parse_array, parse_object))(input)
     }
 }
@@ -134,4 +134,59 @@ fn parse_object(input: &str) -> IResult<&str, Construct, ParseError> {
         char('}'),
     )(input)?;
     Ok((input, Construct::Object(kvs)))
+}
+
+#[cfg(test)]
+mod test {
+    use crate::combinator::Split;
+
+    use super::*;
+
+    #[test]
+    fn array_construction() {
+        assert!(Construct::parse("[").is_err());
+        assert!(Construct::parse("]").is_err());
+        assert!(Construct::parse("].[").is_err());
+        assert!(Construct::parse("[]").is_err()); // TODO: Probably should be allowed
+
+        assert_eq!(
+            Construct::Array(Box::new(Query::Identity)),
+            Construct::parse("[.]").unwrap()
+        );
+        assert_eq!(
+            Construct::Array(Box::new(Query::Split(Box::new(Split(
+                Query::Index(Index::String("foo".to_string())),
+                Query::Index(Index::String("bar".to_string()))
+            ))))),
+            Construct::parse("[.foo,.bar]").unwrap()
+        );
+    }
+
+    #[test]
+    fn object_construction() {
+        assert!(Construct::parse("{").is_err());
+        assert!(Construct::parse("}").is_err());
+        assert!(Construct::parse("}{").is_err());
+        assert!(Construct::parse("{:}").is_err());
+        assert!(Construct::parse("{foo:}").is_err());
+        assert!(Construct::parse("{:.}").is_err());
+        assert!(Construct::parse("{.:.}").is_err());
+        assert!(Construct::parse("{():.}").is_err());
+
+        assert_eq!(Construct::Object(vec![]), Construct::parse("{}").unwrap());
+        assert_eq!(
+            Construct::Object(vec![
+                Construct::shorthand("foo".to_string()),
+                (
+                    Key::Simple("bar".to_string()),
+                    Query::Index(Index::String("bar".to_string()))
+                ),
+                (
+                    Key::Query(Query::Index(Index::String("baz".to_string()))),
+                    Query::Iterator
+                )
+            ]),
+            Construct::parse("{foo,bar:.bar,(.baz):.[]}").unwrap()
+        );
+    }
 }

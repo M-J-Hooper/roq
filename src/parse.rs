@@ -1,8 +1,10 @@
-use crate::combinator::{chain, optional, Chain, Split};
-use crate::construction::Construct;
-use crate::index::Index;
-use crate::query::Query;
-use crate::space;
+use crate::{
+    combinator::{chain, optional, Chain, Split},
+    construction::Construct,
+    index::Index,
+    query::Query,
+    space,
+};
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -41,25 +43,29 @@ impl error::ParseError<&str> for ParseError {
     }
 }
 
-pub trait Parseable: Sized {
-    fn parse(input: &str) -> IResult<&str, Self, ParseError>;
-}
-
-impl Parseable for Query {
-    fn parse(input: &str) -> IResult<&str, Self, ParseError> {
-        if input.is_empty() {
-            return Ok((input, Query::Empty));
-        }
-        parse_pipe(input)
-    }
-}
-
 impl std::str::FromStr for Query {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (_, query) = all_consuming(Query::parse)(s)?;
-        Ok(query)
+        Query::parse(s)
+    }
+}
+
+pub trait Parseable: Sized {
+    fn parser(input: &str) -> IResult<&str, Self, ParseError>;
+
+    fn parse(input: &str) -> Result<Self, ParseError> {
+        let (_, output) = all_consuming(Self::parser)(input)?;
+        Ok(output)
+    }
+}
+
+impl Parseable for Query {
+    fn parser(input: &str) -> IResult<&str, Self, ParseError> {
+        if input.is_empty() {
+            return Ok((input, Query::Empty));
+        }
+        parse_pipe(input)
     }
 }
 
@@ -87,7 +93,7 @@ pub(crate) fn parse_init(input: &str) -> IResult<&str, Query, ParseError> {
     space::around(alt((
         chain(alt((
             parse_index_shorthand,
-            map(Construct::parse, Query::Contruct),
+            map(Construct::parser, Query::Contruct),
             preceded(char('.'), alt((parse_index, parse_iterator))),
         ))),
         value(Query::Recurse, tag("..")),
@@ -100,7 +106,7 @@ pub(crate) fn parse_chain(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 fn parse_index(input: &str) -> IResult<&str, Query, ParseError> {
-    optional(map(Index::parse, Query::Index))(input)
+    optional(map(Index::parser, Query::Index))(input)
 }
 
 fn parse_index_shorthand(input: &str) -> IResult<&str, Query, ParseError> {
@@ -115,12 +121,6 @@ fn parse_iterator(input: &str) -> IResult<&str, Query, ParseError> {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        combinator::Optional,
-        construction::{Construct, Key},
-        range::Range,
-    };
-
     use super::*;
 
     #[test]
@@ -139,212 +139,5 @@ mod test {
         assert!(".[].[]".parse::<Query>().is_err());
 
         assert_eq!(Query::Iterator, ".[]".parse().unwrap());
-        assert_eq!(
-            Query::Optional(Box::new(Optional(Query::Iterator))),
-            ".[]?".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Chain(Box::new(Chain(
-                Query::Iterator,
-                Query::Chain(Box::new(Chain(Query::Iterator, Query::Iterator)))
-            ))),
-            ".[][][]".parse().unwrap()
-        );
-    }
-
-    #[test]
-    fn object_index() {
-        assert!("foo".parse::<Query>().is_err());
-        assert!("..foo".parse::<Query>().is_err());
-        assert!(".f$$".parse::<Query>().is_err());
-        assert!(".[f$$]".parse::<Query>().is_err());
-        assert!(".[foo]".parse::<Query>().is_err());
-        assert!(".[\"foo]".parse::<Query>().is_err());
-        assert!(".[foo\"]".parse::<Query>().is_err());
-
-        assert_eq!(
-            Query::Index(Index::String("foo".to_string())),
-            ".foo".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Optional(Box::new(Optional(Query::Index(Index::String(
-                "foo".to_string()
-            ))))),
-            ".foo?".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Index(Index::String("foo".to_string())),
-            ".[\"foo\"]".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Optional(Box::new(Optional(Query::Index(Index::String(
-                "foo".to_string()
-            ))))),
-            ".[\"foo\"]?".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Chain(Box::new(Chain(
-                Query::Index(Index::String("foo".to_string())),
-                Query::Chain(Box::new(Chain(
-                    Query::Index(Index::String("bar".to_string())),
-                    Query::Index(Index::String("baz".to_string()))
-                )))
-            ))),
-            ".foo.bar.baz".parse().unwrap()
-        );
-    }
-
-    #[test]
-    fn array_index() {
-        assert!("[0]".parse::<Query>().is_err());
-        assert!(".[a]".parse::<Query>().is_err());
-        assert!("..[0]".parse::<Query>().is_err());
-        assert!(".[0].[0]".parse::<Query>().is_err());
-
-        assert_eq!(Query::Index(Index::Integer(0)), ".[0]".parse().unwrap());
-        assert_eq!(Query::Index(Index::Integer(-1)), ".[-1]".parse().unwrap());
-        assert_eq!(
-            Query::Optional(Box::new(Optional(Query::Index(Index::Integer(0))))),
-            ".[0]?".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Index(Index::Integer(9001)),
-            ".[9001]".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Chain(Box::new(Chain(
-                Query::Index(Index::Integer(5)),
-                Query::Chain(Box::new(Chain(
-                    Query::Index(Index::Integer(8)),
-                    Query::Index(Index::Integer(13))
-                )))
-            ))),
-            ".[5][8][13]".parse().unwrap()
-        );
-    }
-
-    #[test]
-    fn slice() {
-        assert!(".[:]".parse::<Query>().is_err());
-        assert!(".[1::2]".parse::<Query>().is_err());
-        assert!(".[:2:]".parse::<Query>().is_err());
-        assert!(".[--2]".parse::<Query>().is_err());
-        assert!(".[-2:4:]".parse::<Query>().is_err());
-        assert!(".[a]".parse::<Query>().is_err());
-        assert!("..[1:2]".parse::<Query>().is_err());
-
-        assert_eq!(
-            Query::Index(Index::Slice(Range::new((-1, 2)))),
-            ".[-1:2]".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Index(Index::Slice(Range::upper(2))),
-            ".[:2]".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Optional(Box::new(Optional(Query::Index(Index::Slice(
-                Range::lower(1)
-            ))))),
-            ".[1:]?".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Index(Index::Slice(Range::new((9001, -9001)))),
-            ".[9001:-9001]".parse().unwrap()
-        );
-    }
-
-    #[test]
-    fn split() {
-        assert!(",.".parse::<Query>().is_err());
-        assert!(".,,.".parse::<Query>().is_err());
-        assert!(",,".parse::<Query>().is_err());
-
-        assert_eq!(
-            Query::Split(Box::new(Split(
-                Query::Identity,
-                Query::Split(Box::new(Split(Query::Identity, Query::Identity)))
-            ))),
-            ".,.,.".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Split(Box::new(Split(
-                Query::Index(Index::String("foo".to_string())),
-                Query::Index(Index::String("bar".to_string()))
-            ))),
-            ".foo,.bar".parse().unwrap()
-        );
-    }
-
-    #[test]
-    fn pipe() {
-        assert!("|.".parse::<Query>().is_err());
-        assert!(".||.".parse::<Query>().is_err());
-        assert!("|".parse::<Query>().is_err());
-
-        assert_eq!(
-            Query::Chain(Box::new(Chain(
-                Query::Identity,
-                Query::Chain(Box::new(Chain(Query::Identity, Query::Identity)))
-            ))),
-            ".|.|.".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Chain(Box::new(Chain(
-                Query::Index(Index::String("foo".to_string())),
-                Query::Index(Index::String("bar".to_string()))
-            ))),
-            ".foo|.bar".parse().unwrap()
-        );
-    }
-
-    #[test]
-    fn array_construction() {
-        assert!("[".parse::<Query>().is_err());
-        assert!("]".parse::<Query>().is_err());
-        assert!("].[".parse::<Query>().is_err());
-        assert!("[]".parse::<Query>().is_err()); // TODO: Probably should be allowed
-
-        assert_eq!(
-            Query::Contruct(Construct::Array(Box::new(Query::Identity))),
-            "[.]".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Contruct(Construct::Array(Box::new(Query::Split(Box::new(Split(
-                Query::Index(Index::String("foo".to_string())),
-                Query::Index(Index::String("bar".to_string()))
-            )))))),
-            "[.foo,.bar]".parse().unwrap()
-        );
-    }
-
-    #[test]
-    fn object_construction() {
-        assert!("{".parse::<Query>().is_err());
-        assert!("}".parse::<Query>().is_err());
-        assert!("}{".parse::<Query>().is_err());
-        assert!("{:}".parse::<Query>().is_err());
-        assert!("{foo:}".parse::<Query>().is_err());
-        assert!("{:.}".parse::<Query>().is_err());
-        assert!("{.:.}".parse::<Query>().is_err());
-        assert!("{():.}".parse::<Query>().is_err());
-
-        assert_eq!(
-            Query::Contruct(Construct::Object(vec![])),
-            "{}".parse().unwrap()
-        );
-        assert_eq!(
-            Query::Contruct(Construct::Object(vec![
-                Construct::shorthand("foo".to_string()),
-                (
-                    Key::Simple("bar".to_string()),
-                    Query::Index(Index::String("bar".to_string()))
-                ),
-                (
-                    Key::Query(Query::Index(Index::String("baz".to_string()))),
-                    Query::Iterator
-                )
-            ])),
-            "{foo,bar:.bar,(.baz):.[]}".parse().unwrap()
-        );
     }
 }

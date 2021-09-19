@@ -70,11 +70,11 @@ fn index_array(arr: &Vec<Value>, i: i32) -> QueryResult {
 }
 
 impl Parseable for Index {
-    fn parse(input: &str) -> IResult<&str, Index, ParseError> {
+    fn parser(input: &str) -> IResult<&str, Index, ParseError> {
         delimited(
             char('['),
             space::around(alt((
-                map(Range::parse, Index::Slice),
+                map(Range::parser, Index::Slice),
                 map(i32, Index::Integer),
                 map(
                     delimited(char('"'), take_while1(|c| c != '"'), char('"')),
@@ -83,5 +83,65 @@ impl Parseable for Index {
             ))),
             char(']'),
         )(input)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::query::Query;
+
+    use super::*;
+
+    #[test]
+    fn parse_object_index() {
+        assert!(Index::parse("foo").is_err());
+        assert!(Index::parse(".foo").is_err());
+        assert!(Index::parse("f$$").is_err());
+        assert!(Index::parse("[f$$]").is_err());
+        assert!(Index::parse("[foo]").is_err());
+        assert!(Index::parse("[\"foo]").is_err());
+        assert!(Index::parse("[foo\"]").is_err());
+
+        assert_eq!(
+            Index::String("f o o".to_string()),
+            Index::parse("[ \"f o o\" ]").unwrap()
+        );
+
+        // Shorthand object index only through full query
+        // This is because of ambiguity with initial dot
+        assert_eq!(
+            Query::Index(Index::String("foo".to_string())),
+            Query::parse(".foo").unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_array_index() {
+        assert!(Index::parse("[a]").is_err());
+        assert!(Index::parse(".[0]").is_err());
+
+        assert_eq!(Index::Integer(0), Index::parse("[ 0 ]").unwrap());
+        assert_eq!(Index::Integer(-1), Index::parse("[-1]").unwrap());
+        assert_eq!(Index::Integer(9001), Index::parse("[9001]").unwrap());
+    }
+
+    #[test]
+    fn parse_slice_index() {
+        assert!(Index::parse("[:]").is_err());
+        assert!(Index::parse("[1::2]").is_err());
+        assert!(Index::parse("[:2:]").is_err());
+        assert!(Index::parse("[--2]").is_err());
+        assert!(Index::parse("[-2:4:]").is_err());
+        assert!(Index::parse("[a]").is_err());
+
+        assert_eq!(
+            Index::Slice(Range::new((-1, 2))),
+            Index::parse("[ -1:2 ]").unwrap()
+        );
+        assert_eq!(Index::Slice(Range::upper(2)), Index::parse("[:2]").unwrap());
+        assert_eq!(
+            Index::Slice(Range::new((9001, -9001))),
+            Index::parse("[9001:-9001]").unwrap()
+        );
     }
 }
