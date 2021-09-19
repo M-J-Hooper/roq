@@ -1,7 +1,12 @@
-use nom::{IResult, combinator::opt, character::complete::char};
+use nom::{character::complete::char, combinator::opt, IResult};
 use serde_json::Value;
 
-use crate::{QueryResult, empty, parse::{ParseError, parse_chain}, query::{iterate_results, iterate_values, Executable, Query}};
+use crate::{
+    empty,
+    parse::{parse_chain, ParseError},
+    query::{iterate_results, iterate_values, Executable, Query},
+    QueryResult,
+};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Split(pub Query, pub Query);
@@ -33,7 +38,9 @@ impl Executable for Optional {
     }
 }
 
-pub(crate) fn optional<'a, F>(mut f: F) -> impl FnMut(&'a str) -> IResult<&'a str, Query, ParseError>
+pub(crate) fn optional<'a, F>(
+    mut f: F,
+) -> impl FnMut(&'a str) -> IResult<&'a str, Query, ParseError>
 where
     F: FnMut(&'a str) -> IResult<&'a str, Query, ParseError>,
 {

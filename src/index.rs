@@ -3,7 +3,7 @@ use crate::{
     parse::{ParseError, Parseable},
     query::Executable,
     range::Range,
-    single, type_str, QueryError, QueryResult,
+    single, space, type_str, QueryError, QueryResult,
 };
 use nom::{
     branch::alt,
@@ -73,14 +73,14 @@ impl Parseable for Index {
     fn parse(input: &str) -> IResult<&str, Index, ParseError> {
         delimited(
             char('['),
-            alt((
+            space::around(alt((
                 map(Range::parse, Index::Slice),
                 map(i32, Index::Integer),
                 map(
                     delimited(char('"'), take_while1(|c| c != '"'), char('"')),
                     |s: &str| Index::String(s.to_string()),
                 ),
-            )),
+            ))),
             char(']'),
         )(input)
     }

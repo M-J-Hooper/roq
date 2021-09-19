@@ -7,6 +7,7 @@ mod index;
 pub mod parse;
 pub mod query;
 mod range;
+mod space;
 
 pub type QueryResult = Result<Vec<Value>, QueryError>;
 
@@ -84,7 +85,7 @@ mod test {
         let v: Value = serde_json::from_str(r#"{"foo": 42}"#).unwrap();
         assert_eq!(r#"42"#, q.execute(&v).unwrap()[0].to_string());
 
-        let q: Query = "[.foo?]".parse().unwrap();
+        let q: Query = "[ .foo? ]".parse().unwrap();
         let v: Value = serde_json::from_str(r#"[1,2]"#).unwrap();
         assert_eq!(r#"[]"#, q.execute(&v).unwrap()[0].to_string());
     }
@@ -143,14 +144,14 @@ mod test {
 
     #[test]
     fn split() {
-        let q: Query = ".foo,.bar".parse().unwrap();
+        let q: Query = ".foo, .bar".parse().unwrap();
         let v: Value =
             serde_json::from_str(r#"{"foo": 42, "bar": "something else", "baz": true}"#).unwrap();
         let r = q.execute(&v).unwrap();
         assert_eq!(r#"42"#, r[0].to_string());
         assert_eq!(r#""something else""#, r[1].to_string());
 
-        let q: Query = ".user,.projects[]".parse().unwrap();
+        let q: Query = ".user, .projects[]".parse().unwrap();
         let v: Value =
             serde_json::from_str(r#"{"user":"stedolan", "projects": ["jq", "wikiflow"]}"#).unwrap();
         let r = q.execute(&v).unwrap();
@@ -164,7 +165,7 @@ mod test {
 
     #[test]
     fn pipe() {
-        let q: Query = ".[]|.name".parse().unwrap();
+        let q: Query = ".[] | .name".parse().unwrap();
         let v: Value =
             serde_json::from_str(r#"[{"name":"JSON", "good":true}, {"name":"XML", "good":false}]"#)
                 .unwrap();
@@ -175,7 +176,7 @@ mod test {
 
     #[test]
     fn array_construction() {
-        let q: Query = "[.user,.projects[]]".parse().unwrap();
+        let q: Query = "[ .user, .projects[] ]".parse().unwrap();
         let v: Value =
             serde_json::from_str(r#"{"user":"stedolan", "projects": ["jq", "wikiflow"]}"#).unwrap();
         assert_eq!(
@@ -193,7 +194,7 @@ mod test {
             serde_json::from_str(r#"{"user":"stedolan","titles":["JQ Primer", "More JQ"]}"#)
                 .unwrap();
 
-        let q: Query = "{user,title:.titles[]}".parse().unwrap();
+        let q: Query = "{ user, title : .titles[] }".parse().unwrap();
         let r = q.execute(&v).unwrap();
         assert_eq!(
             r#"{"title":"JQ Primer","user":"stedolan"}"#,
@@ -201,7 +202,7 @@ mod test {
         );
         assert_eq!(r#"{"title":"More JQ","user":"stedolan"}"#, r[1].to_string());
 
-        let q: Query = "{(.user):.titles}".parse().unwrap();
+        let q: Query = "{ (.user): .titles }".parse().unwrap();
         assert_eq!(
             r#"{"stedolan":["JQ Primer","More JQ"]}"#,
             q.execute(&v).unwrap()[0].to_string()
@@ -210,7 +211,7 @@ mod test {
 
     #[test]
     fn recursive_descent() {
-        let q: Query = "..|.a?".parse().unwrap();
+        let q: Query = ".. | .a?".parse().unwrap();
         let v: Value = serde_json::from_str(r#"[[{"a":1}]]"#).unwrap();
         assert_eq!(r#"1"#, q.execute(&v).unwrap()[0].to_string());
     }

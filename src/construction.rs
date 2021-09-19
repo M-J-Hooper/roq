@@ -2,7 +2,7 @@ use crate::{
     index::Index,
     parse::{parse_init, parse_pipe, ParseError, Parseable},
     query::{Executable, Query},
-    type_str, QueryError, QueryResult,
+    space, type_str, QueryError, QueryResult,
 };
 use nom::{
     branch::alt,
@@ -110,27 +110,27 @@ impl Parseable for Construct {
 }
 
 fn parse_array(input: &str) -> IResult<&str, Construct, ParseError> {
-    let (input, inner) = delimited(char('['), parse_pipe, char(']'))(input)?;
+    let (input, inner) = delimited(char('['), space::around(parse_pipe), char(']'))(input)?;
     Ok((input, Construct::Array(Box::new(inner))))
 }
 
 fn parse_object(input: &str) -> IResult<&str, Construct, ParseError> {
     let (input, kvs) = delimited(
         char('{'),
-        separated_list0(
+        space::around(separated_list0(
             char(','),
-            alt((
+            space::around(alt((
                 separated_pair(
                     alt((
                         map(delimited(char('('), parse_init, char(')')), Key::Query),
                         map(alphanumeric1, |s: &str| Key::Simple(s.to_string())),
                     )),
-                    char(':'),
+                    space::around(char(':')),
                     parse_init,
                 ),
                 map(alphanumeric1, |s: &str| Construct::shorthand(s.to_string())),
-            )),
-        ),
+            ))),
+        )),
         char('}'),
     )(input)?;
     Ok((input, Construct::Object(kvs)))

@@ -1,7 +1,8 @@
-use crate::combinator::{Chain, Split, chain, optional};
+use crate::combinator::{chain, optional, Chain, Split};
 use crate::construction::Construct;
 use crate::index::Index;
 use crate::query::Query;
+use crate::space;
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -64,7 +65,7 @@ impl std::str::FromStr for Query {
 
 pub(crate) fn parse_pipe(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, curr) = parse_split(input)?;
-    let (input, opt) = opt(preceded(char('|'), parse_pipe))(input)?;
+    let (input, opt) = opt(preceded(space::around(char('|')), parse_pipe))(input)?;
     if let Some(next) = opt {
         Ok((input, Query::Chain(Box::new(Chain(curr, next)))))
     } else {
@@ -74,7 +75,7 @@ pub(crate) fn parse_pipe(input: &str) -> IResult<&str, Query, ParseError> {
 
 pub(crate) fn parse_split(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, left) = parse_init(input)?;
-    let (input, opt) = opt(preceded(char(','), parse_split))(input)?;
+    let (input, opt) = opt(preceded(space::around(char(',')), parse_split))(input)?;
     if let Some(right) = opt {
         Ok((input, Query::Split(Box::new(Split(left, right)))))
     } else {
@@ -83,7 +84,7 @@ pub(crate) fn parse_split(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 pub(crate) fn parse_init(input: &str) -> IResult<&str, Query, ParseError> {
-    alt((
+    space::around(alt((
         chain(alt((
             parse_index_shorthand,
             map(Construct::parse, Query::Contruct),
@@ -91,7 +92,7 @@ pub(crate) fn parse_init(input: &str) -> IResult<&str, Query, ParseError> {
         ))),
         value(Query::Recurse, tag("..")),
         value(Query::Identity, char('.')),
-    ))(input)
+    )))(input)
 }
 
 pub(crate) fn parse_chain(input: &str) -> IResult<&str, Query, ParseError> {
@@ -103,10 +104,9 @@ fn parse_index(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 fn parse_index_shorthand(input: &str) -> IResult<&str, Query, ParseError> {
-    optional(map(
-        preceded(char('.'), alphanumeric1), 
-        |s: &str| Query::Index(Index::String(s.to_string()))
-    ))(input)
+    optional(map(preceded(char('.'), alphanumeric1), |s: &str| {
+        Query::Index(Index::String(s.to_string()))
+    }))(input)
 }
 
 fn parse_iterator(input: &str) -> IResult<&str, Query, ParseError> {
@@ -115,7 +115,11 @@ fn parse_iterator(input: &str) -> IResult<&str, Query, ParseError> {
 
 #[cfg(test)]
 mod test {
-    use crate::{combinator::Optional, construction::{Construct, Key}, range::Range};
+    use crate::{
+        combinator::Optional,
+        construction::{Construct, Key},
+        range::Range,
+    };
 
     use super::*;
 
@@ -254,7 +258,6 @@ mod test {
         assert!(",.".parse::<Query>().is_err());
         assert!(".,,.".parse::<Query>().is_err());
         assert!(",,".parse::<Query>().is_err());
-        assert!("., .".parse::<Query>().is_err()); // TODO: Handle whitespace
 
         assert_eq!(
             Query::Split(Box::new(Split(
@@ -277,7 +280,6 @@ mod test {
         assert!("|.".parse::<Query>().is_err());
         assert!(".||.".parse::<Query>().is_err());
         assert!("|".parse::<Query>().is_err());
-        assert!("| .".parse::<Query>().is_err()); // TODO: Handle whitespace
 
         assert_eq!(
             Query::Chain(Box::new(Chain(
@@ -324,6 +326,7 @@ mod test {
         assert!("{foo:}".parse::<Query>().is_err());
         assert!("{:.}".parse::<Query>().is_err());
         assert!("{.:.}".parse::<Query>().is_err());
+        assert!("{():.}".parse::<Query>().is_err());
 
         assert_eq!(
             Query::Contruct(Construct::Object(vec![])),
