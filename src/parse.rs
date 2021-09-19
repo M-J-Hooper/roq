@@ -1,4 +1,4 @@
-use crate::combinator::{Chain, Optional, Split};
+use crate::combinator::{Chain, Split, chain, optional};
 use crate::construction::Construct;
 use crate::index::Index;
 use crate::query::Query;
@@ -72,7 +72,7 @@ pub(crate) fn parse_pipe(input: &str) -> IResult<&str, Query, ParseError> {
     }
 }
 
-fn parse_split(input: &str) -> IResult<&str, Query, ParseError> {
+pub(crate) fn parse_split(input: &str) -> IResult<&str, Query, ParseError> {
     let (input, left) = parse_init(input)?;
     let (input, opt) = opt(preceded(char(','), parse_split))(input)?;
     if let Some(right) = opt {
@@ -94,7 +94,7 @@ pub(crate) fn parse_init(input: &str) -> IResult<&str, Query, ParseError> {
     ))(input)
 }
 
-fn parse_chain(input: &str) -> IResult<&str, Query, ParseError> {
+pub(crate) fn parse_chain(input: &str) -> IResult<&str, Query, ParseError> {
     chain(alt((parse_index_shorthand, parse_index, parse_iterator)))(input)
 }
 
@@ -103,51 +103,19 @@ fn parse_index(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 fn parse_index_shorthand(input: &str) -> IResult<&str, Query, ParseError> {
-    optional(map(preceded(char('.'), alphanumeric1), |s: &str| {
-        Query::Index(Index::String(s.to_string()))
-    }))(input)
+    optional(map(
+        preceded(char('.'), alphanumeric1), 
+        |s: &str| Query::Index(Index::String(s.to_string()))
+    ))(input)
 }
 
 fn parse_iterator(input: &str) -> IResult<&str, Query, ParseError> {
     optional(value(Query::Iterator, tag("[]")))(input)
 }
 
-fn optional<'a, F>(mut f: F) -> impl FnMut(&'a str) -> IResult<&'a str, Query, ParseError>
-where
-    F: FnMut(&'a str) -> IResult<&'a str, Query, ParseError>,
-{
-    move |input: &'a str| {
-        let (input, q) = f(input)?;
-        let (input, opt) = opt(char('?'))(input)?;
-        let q = match opt {
-            Some(_) => Query::Optional(Box::new(Optional(q))),
-            None => q,
-        };
-        Ok((input, q))
-    }
-}
-
-fn chain<'a, F>(mut f: F) -> impl FnMut(&'a str) -> IResult<&'a str, Query, ParseError>
-where
-    F: FnMut(&'a str) -> IResult<&'a str, Query, ParseError>,
-{
-    move |input: &'a str| {
-        let (input, q) = f(input)?;
-        let (input, next) = opt(parse_chain)(input)?;
-        let q = match next {
-            Some(qq) => Query::Chain(Box::new(Chain(q, qq))),
-            None => q,
-        };
-        Ok((input, q))
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use crate::{
-        construction::{Construct, Key},
-        range::Range,
-    };
+    use crate::{combinator::Optional, construction::{Construct, Key}, range::Range};
 
     use super::*;
 
