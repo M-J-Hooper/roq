@@ -137,7 +137,7 @@ fn parse_object(input: &str) -> IResult<&str, Construct, ParseError> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::combinator::Split;
 
     use super::*;

@@ -87,7 +87,7 @@ impl Parseable for Index {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::query::Query;
 
     use super::*;

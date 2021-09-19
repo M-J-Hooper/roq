@@ -46,7 +46,7 @@ pub(crate) fn empty() -> QueryResult {
 
 // Tests are taken from examples at https://stedolan.github.io/jq/manual
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::query::{Executable, Query};
     use serde_json::Value;
 

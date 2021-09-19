@@ -120,7 +120,7 @@ fn parse_iterator(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]

@@ -71,7 +71,7 @@ where
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::{index::Index, parse::Parseable, range::Range};
 
     use super::*;
