@@ -4,6 +4,7 @@ use crate::{
     query::{Executable, Query},
     space, type_str, QueryError, QueryResult,
 };
+use itertools::Itertools;
 use nom::{
     branch::alt,
     character::complete::{alphanumeric1, char},
@@ -12,7 +13,7 @@ use nom::{
     sequence::{delimited, separated_pair},
     IResult,
 };
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Construct {
@@ -24,6 +25,25 @@ pub enum Construct {
 pub enum Key {
     Simple(String),
     Query(Query),
+}
+
+impl Key {
+    fn execute(&self, value: &Value) -> Result<Vec<String>, QueryError> {
+        let keys = match self {
+            Key::Simple(s) => vec![s.clone()],
+            Key::Query(inner) => {
+                let mut keys = Vec::new();
+                for k in inner.execute(value)? {
+                    match k {
+                        Value::String(s) => keys.push(s),
+                        vv => return Err(QueryError::ObjectKey(type_str(&vv))),
+                    }
+                }
+                keys
+            }
+        };
+        Ok(keys)
+    }
 }
 
 impl Construct {
@@ -47,60 +67,18 @@ fn construct_array(v: &Value, inner: &Query) -> QueryResult {
     Ok(vec![Value::Array(inner.execute(v)?)])
 }
 
-fn construct_object(v: &Value, kvs: &Vec<(Key, Query)>) -> QueryResult {
-    let mut eval_keys = Vec::new();
-    let mut eval_values = Vec::new();
-    for kv in kvs {
-        let keys = match &kv.0 {
-            Key::Simple(s) => vec![s.clone()],
-            Key::Query(inner) => {
-                let mut keys = Vec::new();
-                for k in inner.execute(v)? {
-                    match k {
-                        Value::String(s) => keys.push(s),
-                        vv => return Err(QueryError::ObjectKey(type_str(&vv))),
-                    }
-                }
-                keys
-            }
-        };
-        let values = kv.1.execute(v)?;
-
-        eval_keys.push(keys);
-        eval_values.push(values);
-    }
-
-    // For each key-value query, there is a vector of permutations
-    let mut combined_perms = Vec::new();
-    for i in 0..eval_keys.len() {
-        let mut single_perms = Vec::new();
-        for k in &eval_keys[i] {
-            for v in &eval_values[i] {
-                single_perms.push((k.clone(), v.clone()));
-            }
-        }
-        combined_perms.push(single_perms);
-    }
-
-    // Now get all combinations of these permutations
-    let mut objs = Vec::new();
-    let n = combined_perms.iter().fold(1, |i, v| i * v.len());
-    for i in 0..n {
-        let mut map = Map::new();
-        let mut x = i;
-        for j in 0..combined_perms.len() {
-            let perms = &combined_perms[j];
-            let l = perms.len();
-
-            let k = x % l;
-            let (key, value) = &perms[k];
-            map.insert(key.clone(), value.clone());
-
-            x /= l;
-        }
-        objs.push(Value::Object(map));
-    }
-    Ok(objs)
+fn construct_object(value: &Value, kvs: &Vec<(Key, Query)>) -> QueryResult {
+    Ok(kvs
+        .iter()
+        .map(|(k, v)| (k.execute(value), v.execute(value)))
+        .map(|(kr, vr)| kr.and_then(|ks| vr.map(|vs| (ks, vs))))
+        .collect::<Result<Vec<(Vec<String>, Vec<Value>)>, _>>()? // Unwrap pairs of results into just pairs of vectors
+        .into_iter() // At this point, each of key and value might have been evaluated to to many values
+        .map(|(ks, vs)| ks.into_iter().cartesian_product(vs)) // Get all combinations for each pair
+        .multi_cartesian_product() // Get all combinations of different pairs
+        .map(|pairs| pairs.into_iter().collect())
+        .map(Value::Object)
+        .collect())
 }
 
 impl Parseable for Construct {
