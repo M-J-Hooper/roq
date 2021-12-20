@@ -7,6 +7,7 @@ use crate::{
 use itertools::Itertools;
 use nom::{
     branch::alt,
+    bytes::complete::take_while1,
     character::complete::{alphanumeric1, char},
     combinator::map,
     multi::separated_list0,
@@ -101,7 +102,13 @@ fn parse_object(input: &str) -> IResult<&str, Construct, ParseError> {
                 separated_pair(
                     alt((
                         map(delimited(char('('), parse_init, char(')')), Key::Query),
-                        map(alphanumeric1, |s: &str| Key::Simple(s.to_string())),
+                        map(
+                            alt((
+                                alphanumeric1,
+                                delimited(char('"'), take_while1(|c| c != '"'), char('"')),
+                            )),
+                            |s: &str| Key::Simple(s.to_string()),
+                        ),
                     )),
                     space::around(char(':')),
                     parse_init,

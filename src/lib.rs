@@ -258,4 +258,34 @@ mod tests {
         let v: Value = serde_json::from_str(r#"["xml", "yaml", "json"]"#).unwrap();
         assert_eq!(r#"["json"]"#, q.execute(&v).unwrap()[0].to_string());
     }
+
+    #[test]
+    fn other_operators() {
+        let q: Query = "10 / . * 3".parse().unwrap();
+        let v: Value = serde_json::from_str(r#"5"#).unwrap();
+        assert_eq!(r#"6"#, q.execute(&v).unwrap()[0].to_string());
+
+        let q: Query = r#". / ", ""#.parse().unwrap();
+        let v: Value = serde_json::from_str(r#""a, b,c,d, e""#).unwrap();
+        assert_eq!(
+            r#"["a","b,c,d","e"]"#,
+            q.execute(&v).unwrap()[0].to_string()
+        );
+
+        let q: Query = r#"{"k": {"a": 1, "b": 2}} * {"k": {"a": 0,"c": 3}}"#
+            .parse()
+            .unwrap();
+        let v: Value = serde_json::from_str(r#"[1,0,-1]"#).unwrap();
+        assert_eq!(
+            r#"{"k":{"a":0,"b":2,"c":3}}"#,
+            q.execute(&v).unwrap()[0].to_string()
+        );
+
+        // TODO: (optional) grouping syntax
+        // let q: Query = r#".[] | (1 / .)?"#.parse().unwrap();
+        // let v: Value = serde_json::from_str(r#""a, b,c,d, e""#).unwrap();
+        // let r = q.execute(&v).unwrap();
+        // assert_eq!(r#"1"#, r[0].to_string());
+        // assert_eq!(r#"-1"#, r[1].to_string());
+    }
 }

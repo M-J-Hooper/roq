@@ -2,18 +2,19 @@ use crate::{
     combinator::{chain, optional, Chain, Split},
     construction::Construct,
     index::Index,
-    operators::{Op, Sign},
+    operators::parse_add,
     query::Query,
     raw::Raw,
     space,
 };
+
 use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alphanumeric1, char},
     combinator::{all_consuming, map, opt, value},
     error::{self, ErrorKind},
-    sequence::{pair, preceded},
+    sequence::preceded,
     IResult,
 };
 use thiserror::Error;
@@ -82,20 +83,10 @@ pub(crate) fn parse_pipe(input: &str) -> IResult<&str, Query, ParseError> {
 }
 
 pub(crate) fn parse_split(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, left) = parse_op(input)?;
+    let (input, left) = parse_add(input)?;
     let (input, opt) = opt(preceded(space::around(char(',')), parse_split))(input)?;
     if let Some(right) = opt {
         Ok((input, Query::Split(Box::new(Split(left, right)))))
-    } else {
-        Ok((input, left))
-    }
-}
-
-pub(crate) fn parse_op(input: &str) -> IResult<&str, Query, ParseError> {
-    let (input, left) = parse_init(input)?;
-    let (input, opt) = opt(pair(space::around(Sign::parser), parse_op))(input)?;
-    if let Some((sign, right)) = opt {
-        Ok((input, Query::Op(Box::new(Op { left, sign, right }))))
     } else {
         Ok((input, left))
     }
