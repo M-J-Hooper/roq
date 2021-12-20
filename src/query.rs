@@ -73,7 +73,7 @@ pub(crate) fn iterate_values<'a, I: IntoIterator<Item = &'a Value>>(
     iterate_results(iter.into_iter().map(|vv| next.execute(vv)))
 }
 
-pub(crate) fn iterate_results<'a, I: IntoIterator<Item = QueryResult>>(iter: I) -> QueryResult {
+pub(crate) fn iterate_results<I: IntoIterator<Item = QueryResult>>(iter: I) -> QueryResult {
     Ok(iter
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?

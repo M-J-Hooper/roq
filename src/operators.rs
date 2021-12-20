@@ -96,13 +96,13 @@ fn sub(l: &Value, r: &Value) -> QueryResult {
 fn mul(l: &Value, r: &Value) -> QueryResult {
     match (l, r) {
         (Value::Number(n), Value::Number(m)) => combine_numbers(n, m, |a, b| a * b, |a, b| a * b),
-        (Value::String(s), Value::Number(n)) => {
-            let i = n.as_u64().ok_or(QueryError::Numerical)? as usize;
+        (Value::String(str), Value::Number(num)) => {
+            let i = num.as_u64().ok_or(QueryError::Numerical)? as usize;
             if i == 0 {
                 null()
             } else {
                 single(Value::String(
-                    std::iter::repeat(s.clone()).take(i).collect(),
+                    std::iter::repeat(str.clone()).take(i).collect(),
                 ))
             }
         }

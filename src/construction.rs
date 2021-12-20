@@ -68,7 +68,7 @@ fn construct_array(v: &Value, inner: &Query) -> QueryResult {
     Ok(vec![Value::Array(inner.execute(v)?)])
 }
 
-fn construct_object(value: &Value, kvs: &Vec<(Key, Query)>) -> QueryResult {
+fn construct_object(value: &Value, kvs: &[(Key, Query)]) -> QueryResult {
     Ok(kvs
         .iter()
         .map(|(k, v)| (k.execute(value), v.execute(value)))

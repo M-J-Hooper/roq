@@ -51,7 +51,7 @@ fn index_object(map: &Map<String, Value>, s: &str) -> QueryResult {
     }
 }
 
-fn index_array(arr: &Vec<Value>, i: i32) -> QueryResult {
+fn index_array(arr: &[Value], i: i32) -> QueryResult {
     let index = if i < 0 {
         let j = -i as usize;
         if j >= arr.len() {
